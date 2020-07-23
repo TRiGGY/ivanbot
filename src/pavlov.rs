@@ -3,8 +3,7 @@ use std::fmt::{Display, Formatter};
 use core::fmt;
 use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM};
 use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
-use regex::{Regex, CaptureMatches, Captures, Match, SubCaptureMatches};
-use std::string::ParseError;
+use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 
 
@@ -81,13 +80,13 @@ impl PavlovCommands {
     }
 }
 
-fn pa1<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
+pub fn pa1<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
     (arguments.get(1)).ok_or_else(|| {
         PavlovError { input: "".to_string(), kind: MissingArgument }
     }).map(|value| { *value })
 }
 
-fn pa2<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
+pub fn pa2<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
     (arguments.get(2)).ok_or_else(|| {
         PavlovError { input: "".to_string(), kind: MissingArgument }
     }).map(|value| { *value })
