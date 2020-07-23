@@ -3,7 +3,7 @@ use serenity::model::channel::Message;
 use serenity::prelude::{Context};
 use serenity::framework::Framework;
 use crate::connect::{get_error_pavlov, maintain_connection, get_error_botcommand};
-use crate::pavlov::{PavlovCommands};
+use crate::pavlov::{PavlovCommands, parse_map};
 use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
@@ -12,6 +12,8 @@ use threadpool::ThreadPool;
 
 use std::sync::mpsc::{Sender, Receiver};
 use crate::config::{get_config, IvanConfig};
+use crate::discord::BotErrorKind::InvalidMapAlias;
+use regex::Regex;
 
 
 struct Handler;
@@ -65,12 +67,12 @@ impl Framework for CustomFramework {
         let bot_command = handle_bot_command(&values, &mut self.config);
         if let Some(value) = bot_command {
             match value {
-                Ok(result) => output(ctx,msg,result),
-                Err(error)=> output(ctx,msg,get_error_botcommand(&error))
+                Ok(result) => output(ctx, msg, result),
+                Err(error) => output(ctx, msg, get_error_botcommand(&error))
             }
             return;
         }
-        let command_string = PavlovCommands::parse_from_arguments(&values);
+        let command_string = PavlovCommands::parse_from_arguments(&values, &self.config);
         match command_string {
             Ok(command) => {
                 println!("{}", &command.to_string());
@@ -119,27 +121,30 @@ pub enum BotErrorKind {
     InvalidArgument,
     MissingArgument,
     ErrorConfig,
+    InvalidMapAlias,
 }
 
-fn handle_bot_command(arguments: &Vec<&str>, config : &mut IvanConfig) -> Option<Result<String, BotCommandError>> {
+fn handle_bot_command(arguments: &Vec<&str>, config: &mut IvanConfig) -> Option<Result<String, BotCommandError>> {
     let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
     match first_argument.to_lowercase().as_str() {
-        "admin" => Some(handle_admin(arguments,config)),
+        "admin" => Some(handle_admin(arguments, config)),
+        "alias" => Some(handle_alias(arguments, config)),
         _ => None
     }
 }
 
 fn handle_admin(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, BotCommandError> {
-    let mode = pa1(arguments)?;
+    let mode = pa(arguments,1)?;
     match mode {
-        "add" => add_admin(parse_discord_id(pa2(arguments)?)?, config),
-        "remove" => remove_admin(parse_discord_id(pa2(arguments)?)?, config),
+        "add" => add_admin(parse_discord_id(pa(arguments,2)?)?, config),
+        "remove" => remove_admin(parse_discord_id(pa(arguments,2)?)?, config),
         _ => Err(BotCommandError {
             input: mode.to_string(),
             kind: BotErrorKind::InvalidArgument,
         })
     }
 }
+
 fn remove_admin(id: u64, config: &mut IvanConfig) -> Result<String, BotCommandError> {
     config.remove_admin(id).map_err(|err| {
         BotCommandError {
@@ -162,17 +167,40 @@ fn add_admin(id: u64, config: &mut IvanConfig) -> Result<String, BotCommandError
     })
 }
 
+fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, BotCommandError> {
+    let mode = pa(arguments, 1)?;
+    match mode {
+        "add" => {
+            let map = parse_map(pa(arguments, 2)?, config).map_err(|err| {
+                BotCommandError { kind: InvalidMapAlias, input: err.input }
+            })?;
+            let alias = check_alias(pa(arguments, 3)?)?;
+            config.add_alias(alias.clone(), map.clone());
+            Ok(format!("alias \"{}\" to map \"{}\" created", alias, map))
+        }
+        "remove" => remove_admin(parse_discord_id(pa(arguments, 2)?)?, config),
+        _ => Err(BotCommandError {
+            input: mode.to_string(),
+            kind: BotErrorKind::InvalidArgument,
+        })
+    }
+}
 
-pub fn pa1<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, BotCommandError> {
-    (arguments.get(1)).ok_or_else(|| {
+pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, BotCommandError> {
+    (arguments.get(index)).ok_or_else(|| {
         BotCommandError { input: "".to_string(), kind: BotErrorKind::MissingArgument }
     }).map(|value| { *value })
 }
 
-pub fn pa2<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, BotCommandError> {
-    (arguments.get(2)).ok_or_else(|| {
-        BotCommandError { input: "".to_string(), kind: BotErrorKind::MissingArgument }
-    }).map(|value| { *value })
+fn check_alias(value: &str) -> Result<String, BotCommandError> {
+    let regex = Regex::new("[A-z0-9]{3}[A-z0-9]*").unwrap();
+    match regex.is_match(value) {
+        true => Ok(value.to_string()),
+        false => Err(BotCommandError {
+            input: value.to_string(),
+            kind: BotErrorKind::InvalidMapAlias,
+        })
+    }
 }
 
 fn parse_discord_id(value: &str) -> Result<u64, BotCommandError> {

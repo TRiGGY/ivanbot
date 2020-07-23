@@ -5,6 +5,7 @@ use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM};
 use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
+use crate::config::IvanConfig;
 
 
 pub enum PavlovCommands {
@@ -51,43 +52,37 @@ pub enum Skin {
 }
 
 impl PavlovCommands {
-    pub fn parse_from_arguments(arguments: &Vec<&str>) -> Result<PavlovCommands, PavlovError> {
+    pub fn parse_from_arguments(arguments: &Vec<&str>, config: &IvanConfig) -> Result<PavlovCommands, PavlovError> {
         let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
         let command = match first_argument.to_lowercase().as_str() {
             "help" => Help,
-            "ban" => Ban(parse_steam_id(pa1(arguments)?)?),
-            "kick" => Kick(parse_steam_id(pa1(arguments)?)?),
-            "unban" => Unban(parse_steam_id(pa1(arguments)?)?),
+            "ban" => Ban(parse_steam_id(pa(arguments,1)?)?),
+            "kick" => Kick(parse_steam_id(pa(arguments,1)?)?),
+            "unban" => Unban(parse_steam_id(pa(arguments,1)?)?),
             "rotatemap" => RotateMap,
             "switchmap" => SwitchMap {
-                map: parse_map(pa1(arguments)?)?,
-                gamemode: parse_game_mode(pa2(arguments)?)?,
+                map: parse_map(pa(arguments,1)?, config)?,
+                gamemode: parse_game_mode(pa(arguments,2)?)?,
             },
-            "switchteam" => SwitchTeam(parse_steam_id(pa1(arguments)?)?, parse_uint(pa2(arguments)?)?),
-            "giveitem" => GiveItem(parse_steam_id(pa1(arguments)?)?, parse_uint(pa2(arguments)?)?),
-            "givecash" => GiveCash(parse_steam_id(pa1(arguments)?)?, parse_uint(pa2(arguments)?)?),
-            "giveteamcash" => GiveTeamCash(parse_team(pa1(arguments)?)?, parse_uint(pa2(arguments)?)?),
-            "inspectplayer" => InspectPlayer(parse_steam_id(pa1(arguments)?)?),
+            "switchteam" => SwitchTeam(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
+            "giveitem" => GiveItem(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
+            "givecash" => GiveCash(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
+            "giveteamcash" => GiveTeamCash(parse_team(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
+            "inspectplayer" => InspectPlayer(parse_steam_id(pa(arguments,1)?)?),
             "refreshlist" => RefreshList,
             "serverinfo" => ServerInfo,
-            "disconnect" => Disconnect,
+            //"disconnect" => Disconnect,
             "resetsnd" => ResetSND,
-            "setplayerskin" => SetPlayerSkin(parse_steam_id(pa1(arguments)?)?, parse_skin(pa2(arguments)?)?),
-            "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa1(arguments)?)?),
+            "setplayerskin" => SetPlayerSkin(parse_steam_id(pa(arguments,1)?)?, parse_skin(pa(arguments,2)?)?),
+            "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa(arguments,1)?)?),
             x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
         };
         return Ok(command);
     }
 }
 
-pub fn pa1<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
-    (arguments.get(1)).ok_or_else(|| {
-        PavlovError { input: "".to_string(), kind: MissingArgument }
-    }).map(|value| { *value })
-}
-
-pub fn pa2<'a>(arguments: &Vec<&'a str>) -> Result<&'a str, PavlovError> {
-    (arguments.get(2)).ok_or_else(|| {
+pub fn pa<'a>(arguments: &Vec<&'a str>,index : usize) -> Result<&'a str, PavlovError> {
+    (arguments.get(index)).ok_or_else(|| {
         PavlovError { input: "".to_string(), kind: MissingArgument }
     }).map(|value| { *value })
 }
@@ -98,21 +93,26 @@ fn parse_steam_id(value: &str) -> Result<u32, PavlovError> {
     })
 }
 
-fn parse_map(value: &str) -> Result<String, PavlovError> {
+pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError> {
+    let resolved_value = match config.get_alias(value) {
+        Some(value) => value,
+        None => value
+    };
+
     let steam_workshop_regex: Regex = Regex::new("id=([0-9]+)").unwrap();
     let valid_mapname: Regex = Regex::new("[UGC]*[0-9]+").unwrap();
-    if value.contains("steamcommunity.com") {
-        let capture = steam_workshop_regex.captures_iter(value).next().unwrap();
+    if resolved_value.contains("steamcommunity.com") {
+        let capture = steam_workshop_regex.captures_iter(resolved_value).next().unwrap();
         let first = capture.get(1);
         if first.is_some() {
             Ok(format!("UGC{}", parse_uint(first.unwrap().as_str())?))
         } else {
-            Err(PavlovError { input: value.to_string(), kind: InvalidMap })
+            Err(PavlovError { input: resolved_value.to_string(), kind: InvalidMap })
         }
-    } else if valid_mapname.is_match(value) {
-        Ok(value.to_string())
+    } else if valid_mapname.is_match(resolved_value) {
+        Ok(resolved_value.to_string())
     } else {
-        Err(PavlovError { input: value.to_string(), kind: InvalidMap })
+        Err(PavlovError { input: resolved_value.to_string(), kind: InvalidMap })
     }
 }
 

@@ -181,6 +181,7 @@ pub fn get_error_botcommand(error: &BotCommandError) -> String {
         BotErrorKind::InvalidArgument => format!("Invalid argument \"{}\"", error.input),
         BotErrorKind::InvalidCommand => format!("Invalid command \"{}\"", error.input),
         BotErrorKind::MissingArgument => format!("Missing argument {}", error.input),
-        BotErrorKind::ErrorConfig => format!("Missing argument {}", error.input)
+        BotErrorKind::ErrorConfig => format!("Missing argument {}", error.input),
+        BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input)
     }
 }

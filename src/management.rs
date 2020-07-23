@@ -1,3 +1,4 @@
 enum BotCommands {
-    Admin(u64)
+    Admin(u64),
+    Alias(String,String)
 }
