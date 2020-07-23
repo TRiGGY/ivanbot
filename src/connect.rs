@@ -6,9 +6,17 @@ use std::io::BufReader;
 use hex::encode;
 use crate::pavlov::{PavlovError, ErrorKind};
 use crate::pavlov::ErrorKind::ConnectionError;
-use std::io;
+use std::{io, env};
+use std::env::var;
+use std::process::exit;
+use crate::credentials::LoginData;
 
 const AUTHENTICATED: &str = "Authenticated=1";
+
+
+pub fn get_connection(login_data: &LoginData) -> Result<PavlovConnection, PavlovError> {
+    return pavlov_connect(&login_data.ip, &login_data.password);
+}
 
 
 pub fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnection, PavlovError> {
@@ -51,6 +59,9 @@ fn read_response(reader: &mut BufReader<TcpStream>) -> io::Result<String> {
     let mut buffer = String::from("");
     loop {
         let line = read_line(reader)?;
+        if line.eq("\r\n") {
+            continue
+        }
         buffer.push_str(line.as_str());
         if line.contains("\r\n") {
             return Ok(buffer);
@@ -98,5 +109,17 @@ impl PavlovConnection {
         read_response(&mut self.reader).map_err(|_err| {
             PavlovError { input: "Couldn't read message response".to_string(), kind: ErrorKind::ConnectionError }
         })
+    }
+}
+
+pub fn get_error(error: &PavlovError) -> (String, bool) {
+    match &error.kind {
+        ErrorKind::InvalidArgument => (format!("Invalid argument \"{}\"", error.input), false),
+        ErrorKind::InvalidCommand => (format!("Invalid command \"{}\"", error.input), false),
+        ErrorKind::ConnectionError => (format!("Connection error: {}", error.input), true),
+        ErrorKind::Authentication => (format!("Authentication error with password: {}", error.input), true),
+        ErrorKind::InvalidConnectionAddress => (format!("Connection error connecting to \"{}\", make sure this is a valid address like google.com:9293", error.input), true),
+        ErrorKind::MissingArgument => (format!("Missing argument {}", error.input), false),
+        ErrorKind::InvalidMap => (format!("Invalid map name {}", error.input), false),
     }
 }
