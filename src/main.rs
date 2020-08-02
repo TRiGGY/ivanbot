@@ -1,4 +1,7 @@
-mod management;
+mod parsing;
+mod permissions;
+mod voting;
+mod model;
 mod config;
 
 use crate::discord::run_discord;

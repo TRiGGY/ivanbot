@@ -1,4 +1,4 @@
-use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, Disconnect, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam};
+use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo,  ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam};
 use std::fmt::{Display, Formatter};
 use core::fmt;
 use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM};
@@ -25,7 +25,7 @@ pub enum PavlovCommands {
     InspectPlayer(SteamId),
     RefreshList,
     ServerInfo,
-    Disconnect,
+    //Disconnect,
     ResetSND,
     SetPlayerSkin(SteamId, Skin),
     SetLimitedAmmoType(u32),
@@ -94,25 +94,27 @@ fn parse_steam_id(value: &str) -> Result<u32, PavlovError> {
 }
 
 pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError> {
-    let resolved_value = match config.get_alias(value) {
+    let map_string = match config.resolve_alias(value) {
         Some(value) => value,
-        None => value
+        None => value.to_string()
     };
+    let map = map_string.as_str();
+
 
     let steam_workshop_regex: Regex = Regex::new("id=([0-9]+)").unwrap();
     let valid_mapname: Regex = Regex::new("[UGC]*[0-9]+").unwrap();
-    if resolved_value.contains("steamcommunity.com") {
-        let capture = steam_workshop_regex.captures_iter(resolved_value).next().unwrap();
+    if map_string.contains("steamcommunity.com") {
+        let capture = steam_workshop_regex.captures_iter(map).next().unwrap();
         let first = capture.get(1);
         if first.is_some() {
             Ok(format!("UGC{}", parse_uint(first.unwrap().as_str())?))
         } else {
-            Err(PavlovError { input: resolved_value.to_string(), kind: InvalidMap })
+            Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
         }
-    } else if valid_mapname.is_match(resolved_value) {
-        Ok(resolved_value.to_string())
+    } else if valid_mapname.is_match(map) {
+        Ok(map_string.to_string())
     } else {
-        Err(PavlovError { input: resolved_value.to_string(), kind: InvalidMap })
+        Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
     }
 }
 
@@ -141,7 +143,7 @@ fn parse_uint(value: &str) -> Result<u32, PavlovError> {
     parse_steam_id(value)
 }
 
-fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
+pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
     let result = match value.to_lowercase().as_str() {
         "snd" => SND,
         "dm" => DM,

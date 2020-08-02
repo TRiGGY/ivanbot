@@ -1,9 +1,9 @@
 use serenity::client::{Client, EventHandler};
-use serenity::model::channel::Message;
+use serenity::model::channel::{Message, ReactionType};
 use serenity::prelude::{Context};
 use serenity::framework::Framework;
 use crate::connect::{get_error_pavlov, maintain_connection, get_error_botcommand};
-use crate::pavlov::{PavlovCommands, parse_map};
+use crate::pavlov::{PavlovCommands, parse_map, parse_game_mode, PavlovError, ErrorKind};
 use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
@@ -14,6 +14,22 @@ use std::sync::mpsc::{Sender, Receiver};
 use crate::config::{get_config, IvanConfig};
 use crate::discord::BotErrorKind::InvalidMapAlias;
 use regex::Regex;
+use std::fmt::{Display};
+use serde::export::Formatter;
+use core::fmt;
+use std::ops::{Add, Deref};
+use rand::seq::IteratorRandom;
+use serenity::model::id::{MessageId, ChannelId, EmojiId};
+use serenity::utils::parse_emoji;
+use serenity::model::guild::Emoji;
+use serenity::model::channel::ReactionType::Unicode;
+use serenity::model::misc::EmojiIdentifier;
+use serenity::model::gateway::ActivityEmoji;
+use crate::model::{handle_command, BotCommandError, BotErrorKind};
+use crate::parsing::pa;
+use crate::model::BotErrorKind::InvalidMapAlias;
+
+const MAX_VOTE_MAPS: usize = 3;
 
 
 struct Handler;
@@ -35,6 +51,7 @@ pub fn run_discord() {
             sender,
             receiver,
             config: config.unwrap(),
+            vote: None,
         }
     );
     if let Err(why) = client.start() {
@@ -46,11 +63,11 @@ struct CustomFramework {
     sender: Sender<PavlovCommands>,
     receiver: Receiver<String>,
     config: IvanConfig,
+    vote: Option<Vote>,
 }
 
-
 impl Framework for CustomFramework {
-    fn dispatch(&mut self, ctx: Context, msg: Message, _: &ThreadPool) {
+    fn dispatch(&mut self, mut ctx: Context, mut msg: Message, _: &ThreadPool) {
         if !authenticate(&msg, &self.config) {
             return;
         }
@@ -63,30 +80,10 @@ impl Framework for CustomFramework {
         let cloned = msg.content.clone();
         let stripped = cloned.trim_start_matches("-");
         let values: Vec<&str> = stripped.split_whitespace().collect();
-
-        let bot_command = handle_bot_command(&values, &mut self.config);
-        if let Some(value) = bot_command {
-            match value {
-                Ok(result) => output(ctx, msg, result),
-                Err(error) => output(ctx, msg, get_error_botcommand(&error))
-            }
-            return;
-        }
-        let command_string = PavlovCommands::parse_from_arguments(&values, &self.config);
-        match command_string {
-            Ok(command) => {
-                println!("{}", &command.to_string());
-                self.sender.send(command).unwrap();
-                let receive = self.receiver.recv().unwrap();
-                output(ctx, msg, receive);
-            }
-            Err(err) => {
-                let (error_message, _) = get_error_pavlov(&err);
-                output(ctx, msg, error_message);
-            }
-        };
+        handle_command(self,&mut ctx, &mut msg, &values);
     }
 }
+
 
 fn authenticate(msg: &Message, config: &IvanConfig) -> bool {
     let uid = msg.author.id.0;
@@ -109,62 +106,28 @@ fn get_discord_token() -> String {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct BotCommandError {
-    pub(crate) input: String,
-    pub(crate) kind: BotErrorKind,
+
+
+
+
+
+
+
+
+
+
+fn handle_map_add(arguments: &Vec<&str>, framework: &&mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<Message, BotCommandError> {
+    let map = convert_error_not_found(parse_map(pa(arguments, 2)?, &framework.config))?;
+    let gamemode = pa(arguments, 3)?;
+    let alias = pa(arguments, 4)?;
+    framework.config.add_alias(alias.to_string(), map.clone());
+    framework.config.add_map(map.clone(), gamemode.to_string(), alias.to_string());
+    reply(msg, ctx, format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias))
 }
 
-#[derive(Debug, Clone)]
-pub enum BotErrorKind {
-    InvalidCommand,
-    InvalidArgument,
-    MissingArgument,
-    ErrorConfig,
-    InvalidMapAlias,
-}
 
-fn handle_bot_command(arguments: &Vec<&str>, config: &mut IvanConfig) -> Option<Result<String, BotCommandError>> {
-    let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
-    match first_argument.to_lowercase().as_str() {
-        "admin" => Some(handle_admin(arguments, config)),
-        "alias" => Some(handle_alias(arguments, config)),
-        _ => None
-    }
-}
-
-fn handle_admin(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, BotCommandError> {
-    let mode = pa(arguments,1)?;
-    match mode {
-        "add" => add_admin(parse_discord_id(pa(arguments,2)?)?, config),
-        "remove" => remove_admin(parse_discord_id(pa(arguments,2)?)?, config),
-        _ => Err(BotCommandError {
-            input: mode.to_string(),
-            kind: BotErrorKind::InvalidArgument,
-        })
-    }
-}
-
-fn remove_admin(id: u64, config: &mut IvanConfig) -> Result<String, BotCommandError> {
-    config.remove_admin(id).map_err(|err| {
-        BotCommandError {
-            input: err.to_string(),
-            kind: BotErrorKind::ErrorConfig,
-        }
-    }).map(|_| {
-        format!("Removed admin with id \"{}\" from the admin list", id)
-    })
-}
-
-fn add_admin(id: u64, config: &mut IvanConfig) -> Result<String, BotCommandError> {
-    config.add_admin(id).map_err(|err| {
-        BotCommandError {
-            input: err.to_string(),
-            kind: BotErrorKind::ErrorConfig,
-        }
-    }).map(|_| {
-        format!("Added admin with id \"{}\" to the admin list", id)
-    })
+fn convert_error_not_found<T>(result: Result<T, PavlovError>) -> Result<T, BotCommandError> {
+    result.map_err(convert_to_not_found())
 }
 
 fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, BotCommandError> {
@@ -186,25 +149,6 @@ fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String
     }
 }
 
-pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, BotCommandError> {
-    (arguments.get(index)).ok_or_else(|| {
-        BotCommandError { input: "".to_string(), kind: BotErrorKind::MissingArgument }
-    }).map(|value| { *value })
-}
 
-fn check_alias(value: &str) -> Result<String, BotCommandError> {
-    let regex = Regex::new("[A-z0-9]{3}[A-z0-9]*").unwrap();
-    match regex.is_match(value) {
-        true => Ok(value.to_string()),
-        false => Err(BotCommandError {
-            input: value.to_string(),
-            kind: BotErrorKind::InvalidMapAlias,
-        })
-    }
-}
 
-fn parse_discord_id(value: &str) -> Result<u64, BotCommandError> {
-    value.parse::<u64>().map_err(|_error| {
-        BotCommandError { input: value.to_string(), kind: BotErrorKind::InvalidArgument }
-    })
-}
+

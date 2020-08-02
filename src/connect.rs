@@ -11,6 +11,7 @@ use crate::credentials::LoginData;
 use std::thread;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use crate::discord::{BotCommandError, BotErrorKind};
+use crate::model::{BotErrorKind, BotCommandError};
 
 const AUTHENTICATED: &str = "Authenticated=1";
 
@@ -182,6 +183,9 @@ pub fn get_error_botcommand(error: &BotCommandError) -> String {
         BotErrorKind::InvalidCommand => format!("Invalid command \"{}\"", error.input),
         BotErrorKind::MissingArgument => format!("Missing argument {}", error.input),
         BotErrorKind::ErrorConfig => format!("Missing argument {}", error.input),
-        BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input)
+        BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input),
+        BotErrorKind::VoteInProgress => format!("There's already a vote in progress: {}",error.input),
+        BotErrorKind::VoteNotInProgress => format!("There's no vote in progress: {}",error.input),
+        BotErrorKind::CouldNotReply => format!("Could not reply to the channel")
     }
 }

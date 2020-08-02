@@ -13,6 +13,7 @@ regex = "1.3.9"
 serenity = "0.8.6"
 confy = "0.4.0"
 serde = "1.0.114"
+rand = "0.7.3"
 [dependencies.threadpool]
 version = "1.8.1"
 
