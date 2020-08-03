@@ -1,14 +1,22 @@
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use serenity::model::channel::Message;
+use serenity::model::channel::{Message, ReactionType};
 use serenity::client::Context;
-use crate::discord::{ CustomFramework};
-use std::ops::Add;
+use crate::discord::{CustomFramework, ConcurrentFramework};
+use std::ops::{Add, Deref};
 use serenity::model::id::{MessageId, ChannelId};
 use serenity::model::channel::ReactionType::Unicode;
 use crate::model::{AdminCommandError, BotErrorKind, reply};
-use crate::pavlov::PavlovError;
+use crate::pavlov::{PavlovError, PavlovCommands, GameMode};
 use rand::seq::IteratorRandom;
+use serenity::http::{CacheHttp, Http};
+use serenity::model::{Permissions, ModelError};
+use serenity::{Error, CacheAndHttp};
+use std::sync::{Mutex, Arc, PoisonError, MutexGuard, RwLock};
+use std::thread::sleep;
+use std::time::Duration;
+use serenity::prelude::ShareMap;
+use serenity::cache::{Cache, CacheRwLock};
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -21,7 +29,7 @@ pub struct Vote {
     channel_id: ChannelId,
 }
 
-struct Choice { id: String, map: String, alias: String, gamemode: String }
+struct Choice { id: String, map: String, alias: String, gamemode: GameMode }
 
 impl Display for Vote {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -37,11 +45,11 @@ impl Display for Vote {
 
 impl Display for Choice {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "The winning map is {} gamemode: {}", self.alias, self.gamemode)
+        write!(f, "{} gamemode: {}", self.alias, self.gamemode)
     }
 }
 
-pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), AdminCommandError> {
     match &mut framework.vote {
         Some(vote) => {
             Err(AdminCommandError {
@@ -51,6 +59,10 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
         }
         None => {
             let maps = framework.config.get_maps_random(MAX_VOTE_MAPS);
+            if maps.is_empty() {
+                reply(msg, ctx.http(), "Can not start a vote without a map pool, add maps with -map add [url/map] [gamemode] [alias]".to_string());
+                return Ok(());
+            }
             let emojis = get_random_emojis(MAX_VOTE_MAPS);
             let choices: Vec<Choice> = maps.iter().zip(emojis).map(|(poolmap, emoji)| {
                 Choice {
@@ -60,21 +72,60 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
                     gamemode: poolmap.gamemode.clone(),
                 }
             }).collect();
-            let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id };
-            let reply = reply(msg, ctx, vote.to_string()).unwrap();
+            let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id};
+            let mut reply = reply(msg, ctx.http(), vote.to_string()).unwrap();
+            for x in &vote.maps {
+                _react(&mut reply, &mut ctx.http, &Unicode(x.id.clone()));
+            }
             vote.message_id = reply.id;
             framework.vote = Some(vote);
+
+            let framework_clone = concurrent_framework.data.clone();
+            let cache_clone = concurrent_framework.cache.clone();
+
+            let child = std::thread::spawn(move || {
+                sleep(Duration::from_secs(30));
+                let mut guard = framework_clone.lock();
+                match guard {
+                    Ok(mut value) => {
+                        match &value.vote {
+                            Some(vote) => {
+                                let message = &mut cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
+                                handle_vote_finish(&mut value, message, &cache_clone.http);
+                                ()
+                            }
+                            None => {
+                                ()
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        println!("{}",err.to_string());
+                            ()
+                    }
+                }
+            });
             Ok(())
         }
     }
 }
 
-pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+
+fn _react(msg: &mut Message, cache_http: &mut impl CacheHttp, reaction_type: &ReactionType) -> Result<(), Error> {
+    cache_http.http().create_reaction(msg.channel_id.0, msg.id.0, reaction_type)
+}
+
+
+pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message,http : &Arc<Http> ) -> Result<(), AdminCommandError> {
     match &framework.vote {
         Some(vote) => {
-            let message = &mut ctx.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
-            let winner = determine_winner(vote, message);
-            reply(msg, ctx, format!("The winner is: {}", winner));
+            let mut message =  http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
+            let winner = determine_winner(vote, &mut message);
+            reply(msg, http, format!("The winner is: {}", winner));
+            framework.sender.send(PavlovCommands::SwitchMap { map: winner.map.clone(), gamemode: winner.gamemode.clone() });
+            let pavlov = framework.receiver.recv().unwrap();
+            reply(msg,  http, pavlov);
+            framework.vote = None;
             Ok(())
         }
         None => Err(AdminCommandError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })

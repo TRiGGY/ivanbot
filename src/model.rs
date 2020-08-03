@@ -1,16 +1,29 @@
 use serenity::client::Context;
 use serenity::model::channel::Message;
-use crate::pavlov::{PavlovCommands, PavlovError, ErrorKind, parse_map};
+use crate::pavlov::{PavlovCommands, PavlovError, ErrorKind, parse_map, parse_game_mode};
 use crate::connect::{get_error_pavlov, get_error_botcommand};
 use regex::Regex;
 use crate::parsing::{pa, parse_discord_id};
 use crate::permissions::{handle_admin, handle_mod};
-use crate::discord::CustomFramework;
+use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::model::IvanError::{BotPavlovError, BotCommandError};
 use crate::output::output;
 use crate::config::IvanConfig;
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found};
+use std::ops::Add;
+use serde::export::fmt::Display;
+use std::sync::{Mutex, Arc};
+use serenity::http::{CacheHttp, Http};
+
+const BOT_HELP : &str =
+    "-admin [add,remove] discord_id_64 #Add
+-alias [add,remove] {url/map} alias
+-bothelp #Help command
+-mod [add,remove] discord_id_64 #Add moderator
+-map add {url/map} gamemode alias #Add map to pool
+-map vote start (X) #Start map vote with X choices, default 3
+-map pool #show map pool";
 
 #[derive(Debug, Clone)]
 pub struct AdminCommandError {
@@ -25,6 +38,7 @@ pub enum BotErrorKind {
     MissingArgument,
     ErrorConfig,
     InvalidMapAlias,
+    InvalidGameMode,
     VoteInProgress,
     VoteNotInProgress,
     CouldNotReply,
@@ -47,33 +61,33 @@ impl From<AdminCommandError> for IvanError {
     }
 }
 
-pub fn handle_command( framework: &mut CustomFramework, ctx: &mut Context, msg: &mut Message, arguments: &Vec<&str>) {
-    let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
-
-    let tree = combine_trees(framework, ctx, msg, arguments, first_argument);
+pub fn handle_command(framework: &mut CustomFramework, mut ctx:  Context, mut msg: Message, arguments: &Vec<&str>, concurrent_framework: &ConcurrentFramework) {
+    let tree = combine_trees(framework, &mut ctx, &mut msg, arguments, concurrent_framework);
     match tree {
         Ok(x) => {}
         Err(error) => {
             match error {
                 IvanError::BotCommandError(admin_error) => {
                     let bot_error = get_error_botcommand(&admin_error);
-                    output(ctx, msg, bot_error)
+                    output(&mut ctx, &mut msg, bot_error)
                 }
                 IvanError::BotPavlovError(pavlov_error) => {
                     let (error_message, _) = get_error_pavlov(&pavlov_error);
-                    output(ctx, msg, error_message);
+                    output(&mut ctx, &mut msg, error_message);
                 }
             }
         }
     }
 }
 
-fn combine_trees(framework:&mut  CustomFramework, mut ctx: &mut Context, msg: &mut Message, arguments: &Vec<&str>, first_argument: &str) -> Result<(), IvanError> {
+fn combine_trees(framework: &mut CustomFramework, mut ctx: &mut Context, msg: &mut Message, arguments: &Vec<&str>, concurrent_framework: &ConcurrentFramework ) -> Result<(), IvanError> {
+    let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
     match first_argument.to_lowercase().as_str() {
         "admin" => output(ctx, msg, handle_admin(arguments, &mut framework.config)?),
         "alias" => output(ctx, msg, handle_alias(arguments, &mut framework.config)?),
+        "bothelp" => output(ctx,msg,BOT_HELP.to_string()),
         "mod" => output(ctx, msg, handle_mod(arguments, &mut framework.config)?),
-        "map" => handle_map(arguments, framework, msg, ctx)?,
+        "map" => handle_map(arguments, framework, msg, ctx, concurrent_framework)?,
         _ => {
             let command = PavlovCommands::parse_from_arguments(arguments, &framework.config)?;
             println!("{}", &command.to_string());
@@ -87,8 +101,8 @@ fn combine_trees(framework:&mut  CustomFramework, mut ctx: &mut Context, msg: &m
 fn handle_command_2() {}
 
 
-pub fn reply(msg: &mut Message, ctx: &mut Context, message: String) -> Result<Message, AdminCommandError> {
-    msg.reply(ctx, message).map_err(|err| {
+pub fn reply(msg: &mut Message,  cache_http: &Http, message: String) -> Result<Message, AdminCommandError> {
+    msg.reply(cache_http, message).map_err(|err| {
         AdminCommandError { input: "Couldn't send reply".to_string(), kind: BotErrorKind::CouldNotReply }
     })
 }
@@ -104,23 +118,38 @@ fn check_alias(value: &str) -> Result<String, AdminCommandError> {
     }
 }
 
-fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context,concurrent_framework : &ConcurrentFramework) -> Result<(), AdminCommandError> {
     let first = pa(arguments, 1)?;
     match first.to_lowercase().as_str() {
         "add" => map_add(arguments, framework, msg, ctx),
-        "vote" => handle_vote(arguments, framework, msg, ctx),
+        "remove" => map_remove(arguments, framework, msg, ctx),
+        "vote" => handle_vote(arguments, framework, msg, ctx,concurrent_framework),
+        "pool" => handle_map_pool(framework, msg, ctx),
         command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
     }
 }
 
-fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+fn handle_map_pool(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+    let maps = framework.config.get_maps();
+    let message = "The map pool is currently:\n".to_string().add(make_message(maps).as_str());
+    reply(msg, ctx.http(), format!("{}", message))?;
+    Ok(())
+}
+
+fn make_message<T: Display>(maps: &Vec<T>) -> String {
+    let message = maps.iter().fold("".to_string(), |a, b| { format!("{}\n{}", a, b.to_string()) });
+    message
+}
+
+fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework : &ConcurrentFramework) -> Result<(), AdminCommandError> {
     let second = pa(arguments, 2)?;
     match second {
-        "start" => handle_vote_start(framework, msg, ctx),
-        "finish" => handle_vote_finish(framework, msg, ctx),
+        "start" => handle_vote_start(framework, msg, ctx,concurrent_framework),
+        "finish" => handle_vote_finish(framework, msg, &ctx.http),
         command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
     }
 }
+
 
 fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
     let mode = pa(arguments, 1)?;
@@ -142,12 +171,24 @@ fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String
 
 fn map_add(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
     let map = convert_error_not_found(parse_map(pa(arguments, 2)?, &framework.config))?;
-    let gamemode = pa(arguments, 3)?;
+    let gamemode = parse_game_mode(pa(arguments, 3)?).map_err(|err| {
+        AdminCommandError { input: err.input, kind: BotErrorKind::InvalidGameMode }
+    })?;
     let alias = pa(arguments, 4)?;
     framework.config.add_alias(alias.to_string(), map.clone());
-    framework.config.add_map(map.clone(), gamemode.to_string(), alias.to_string());
-    reply(msg, ctx, format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias));
+    framework.config.add_map(map.clone(), gamemode.clone(), alias.to_string());
+    reply(msg, ctx.http(), format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias));
     Ok(())
+}
+
+fn map_remove(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+    if framework.vote.is_some() {
+        return Err(AdminCommandError { input: "Can't remove a map when a vote is in progress".to_string(), kind: BotErrorKind::VoteInProgress });
+    }
+    let alias_or_map = pa(arguments, 2)?;
+    framework.config.remove_alias(alias_or_map.to_string());
+    framework.config.remove_map(alias_or_map.to_string());
+    handle_map_pool(framework, msg, ctx)
 }
 
 pub fn convert_error_not_found<T>(result: Result<T, PavlovError>) -> Result<T, AdminCommandError> {

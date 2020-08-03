@@ -28,11 +28,33 @@ use crate::model::{handle_command, AdminCommandError, BotErrorKind, reply};
 use crate::parsing::{pa, parse_discord_id};
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::Vote;
+use std::sync::{Mutex, RwLockWriteGuard, Arc};
+use serenity::CacheAndHttp;
 
 
 struct Handler;
 
 impl EventHandler for Handler {}
+
+pub struct ConcurrentFramework {
+    pub data: Arc<Mutex<CustomFramework>>,
+    pub cache: Arc<CacheAndHttp>
+}
+
+impl Framework for ConcurrentFramework {
+    fn dispatch(&mut self, ctx: Context, msg: Message, threadpool: &ThreadPool) {
+        let mut mutex = self.data.lock();
+        return match mutex {
+            Ok(mut guard) => {
+                event_handler(&mut guard, ctx, msg, self)
+            }
+            Err(err) => {
+                panic!(err.to_string())
+            }
+        };
+    }
+}
+
 pub struct CustomFramework {
     pub sender: Sender<PavlovCommands>,
     pub receiver: Receiver<String>,
@@ -51,36 +73,41 @@ pub fn run_discord() {
         exit(1);
     }
     let (sender, receiver) = maintain_connection(login);
-    client.with_framework(
-        CustomFramework {
-            sender,
-            receiver,
-            config: config.unwrap(),
-            vote: None,
-        }
-    );
+    let arc = Arc::new(Mutex::from(CustomFramework {
+        sender,
+        receiver,
+        config: config.unwrap(),
+        vote: None,
+    }));
+
+    let concurrent_framework = ConcurrentFramework {
+        data: arc,
+        cache: client.cache_and_http.clone()
+    };
+
+    client.with_framework(concurrent_framework);
     if let Err(why) = client.start() {
         println!("Err with client: {:?}", why);
     }
 }
 
-impl Framework for CustomFramework {
-    fn dispatch(&mut self, mut ctx: Context, mut msg: Message, _: &ThreadPool) {
-        if !authenticate(&msg, &self.config) {
-            return;
-        }
-        if msg.author.bot {
-            return;
-        }
-        if !msg.content.starts_with("-") {
-            return;
-        }
-        let cloned = msg.content.clone();
-        let stripped = cloned.trim_start_matches("-");
-        let values: Vec<&str> = stripped.split_whitespace().collect();
-        handle_command(self, &mut ctx, &mut msg, &values);
+
+fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message,concurrent_framework:  &ConcurrentFramework ) {
+    if !authenticate(&msg, &framework.config) {
+        return;
     }
+    if msg.author.bot {
+        return;
+    }
+    if !msg.content.starts_with("-") {
+        return;
+    }
+    let cloned = msg.content.clone();
+    let stripped = cloned.trim_start_matches("-");
+    let values: Vec<&str> = stripped.split_whitespace().collect();
+    handle_command(framework, ctx, msg, &values, concurrent_framework);
 }
+
 
 fn authenticate(msg: &Message, config: &IvanConfig) -> bool {
     let uid = msg.author.id.0;

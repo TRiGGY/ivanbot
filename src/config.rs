@@ -5,6 +5,12 @@ use std::collections::HashMap;
 use rand;
 use rand::seq::SliceRandom;
 use serde::ser::SerializeStruct;
+use crate::pavlov::GameMode;
+use std::fmt::Display;
+use serde::export::Formatter;
+use core::fmt;
+
+const IVAN_CONFIG: &str = "~/ivan";
 
 #[derive(Serialize, Deserialize)]
 pub struct IvanConfig {
@@ -19,22 +25,15 @@ pub struct IvanConfig {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PoolMap {
     pub map: String,
-    pub gamemode: String,
+    pub gamemode: GameMode,
     pub alias: String,
 }
-// impl Serialize for PoolMap {
-//     fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
-//         S: Serializer {
-//         let mut state = serializer.serialize_struct("Poolmap", 3)?;
-//         state.serialize_field("map",&self.map);
-//         state.serialize_field("gamemode",&self.gamemode);
-//         state.serialize_field("alias",&self.alias);
-//         state.end()
-//     }
-// }
 
-
-const IVAN_CONFIG: &str = "~/ivan";
+impl Display for PoolMap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f,"map: \"{}\" \t({}) \tgamemode: {}",self.alias,self.map,self.gamemode)
+    }
+}
 
 impl IvanConfig {
     pub fn is_admin(&self, id: u64) -> bool {
@@ -79,6 +78,13 @@ impl IvanConfig {
     }
     pub fn add_alias(&mut self, alias: String, mapname: String) {
         self.aliases.push((alias, mapname));
+        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+        confy::store_path(path,self);
+    }
+    pub fn remove_alias(&mut self, alias: String) {
+        self.aliases.retain(|(key,value)|{
+            *key != alias && *value != alias
+        })
     }
     pub fn resolve_alias(&self, alias: &str) -> Option<String> {
         self.aliases.iter().find(|(key, value)| {
@@ -88,13 +94,22 @@ impl IvanConfig {
         })
     }
 
-    pub fn add_map(&mut self, map: String, gamemode: String, alias: String) {
+    pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) {
         self.maps.push(PoolMap { map, gamemode, alias });
+    }
+    pub fn remove_map(&mut self, alias: String) {
+        self.maps.retain(|map|{
+            map.alias != alias && map.map != alias
+        });
     }
     pub fn get_maps_random(&self, amount: usize) -> Vec<&PoolMap> {
         let value: Vec<&PoolMap> = self.maps.choose_multiple(&mut rand::thread_rng(), amount).collect();
         value.clone()
     }
+    pub fn get_maps(&self) -> &Vec<PoolMap> {
+        &self.maps
+    }
+
 }
 
 /// `MyConfig` implements `Default`

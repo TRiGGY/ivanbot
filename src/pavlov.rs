@@ -6,7 +6,7 @@ use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 use crate::config::IvanConfig;
-
+use serde::{Serialize, Deserialize, Serializer, Deserializer};
 
 pub enum PavlovCommands {
     Help,
@@ -30,7 +30,7 @@ pub enum PavlovCommands {
     SetPlayerSkin(SteamId, Skin),
     SetLimitedAmmoType(u32),
 }
-
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GameMode {
     SND,
     DM,

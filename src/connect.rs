@@ -185,6 +185,7 @@ pub fn get_error_botcommand(error: &AdminCommandError) -> String {
         BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input),
         BotErrorKind::VoteInProgress => format!("There's already a vote in progress: {}",error.input),
         BotErrorKind::VoteNotInProgress => format!("There's no vote in progress: {}",error.input),
-        BotErrorKind::CouldNotReply => format!("Could not reply to the channel")
+        BotErrorKind::CouldNotReply => format!("Could not reply to the channel"),
+        BotErrorKind::InvalidGameMode => format!("Invalid game mode valid \"{}\" valid [DM,TDM,GUN,SND]",error.input)
     }
 }
