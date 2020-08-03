@@ -56,24 +56,24 @@ impl PavlovCommands {
         let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
         let command = match first_argument.to_lowercase().as_str() {
             "help" => Help,
-            "ban" => Ban(parse_steam_id(pa(arguments,1)?)?),
-            "kick" => Kick(parse_steam_id(pa(arguments,1)?)?),
-            "unban" => Unban(parse_steam_id(pa(arguments,1)?)?),
+            "ban" => Ban(parse_u32(pa(arguments, 1)?)?),
+            "kick" => Kick(parse_u32(pa(arguments, 1)?)?),
+            "unban" => Unban(parse_u32(pa(arguments, 1)?)?),
             "rotatemap" => RotateMap,
             "switchmap" => SwitchMap {
                 map: parse_map(pa(arguments,1)?, config)?,
                 gamemode: parse_game_mode(pa(arguments,2)?)?,
             },
-            "switchteam" => SwitchTeam(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
-            "giveitem" => GiveItem(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
-            "givecash" => GiveCash(parse_steam_id(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
+            "switchteam" => SwitchTeam(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
+            "giveitem" => GiveItem(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
+            "givecash" => GiveCash(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
             "giveteamcash" => GiveTeamCash(parse_team(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
-            "inspectplayer" => InspectPlayer(parse_steam_id(pa(arguments,1)?)?),
+            "inspectplayer" => InspectPlayer(parse_u32(pa(arguments, 1)?)?),
             "refreshlist" => RefreshList,
             "serverinfo" => ServerInfo,
             //"disconnect" => Disconnect,
             "resetsnd" => ResetSND,
-            "setplayerskin" => SetPlayerSkin(parse_steam_id(pa(arguments,1)?)?, parse_skin(pa(arguments,2)?)?),
+            "setplayerskin" => SetPlayerSkin(parse_u32(pa(arguments, 1)?)?, parse_skin(pa(arguments, 2)?)?),
             "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa(arguments,1)?)?),
             x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
         };
@@ -87,7 +87,7 @@ pub fn pa<'a>(arguments: &Vec<&'a str>,index : usize) -> Result<&'a str, PavlovE
     }).map(|value| { *value })
 }
 
-fn parse_steam_id(value: &str) -> Result<u32, PavlovError> {
+pub fn parse_u32(value: &str) -> Result<u32, PavlovError> {
     value.parse::<u32>().map_err(|_error| {
         PavlovError { input: value.to_string(), kind: InvalidArgument }
     })
@@ -119,7 +119,7 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
 }
 
 fn parse_team(value: &str) -> Result<u32, PavlovError> {
-    parse_steam_id(value)
+    parse_u32(value)
 }
 
 fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
@@ -136,11 +136,11 @@ fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
 }
 
 fn parse_ammo(value: &str) -> Result<u32, PavlovError> {
-    parse_steam_id(value)
+    parse_u32(value)
 }
 
 fn parse_uint(value: &str) -> Result<u32, PavlovError> {
-    parse_steam_id(value)
+    parse_u32(value)
 }
 
 pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {

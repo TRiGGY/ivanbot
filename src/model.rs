@@ -1,6 +1,6 @@
 use serenity::client::Context;
 use serenity::model::channel::Message;
-use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode};
+use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, parse_u32};
 use crate::connect::{get_error_pavlov, get_error_botcommand};
 use regex::Regex;
 use crate::parsing::{pa};
@@ -10,7 +10,7 @@ use crate::model::IvanError::{BotPavlovError, BotCommandError};
 use crate::output::output;
 use crate::config::IvanConfig;
 use crate::model::BotErrorKind::InvalidMapAlias;
-use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found};
+use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found, MAX_VOTE_MAPS};
 use std::ops::Add;
 use serde::export::fmt::Display;
 use serenity::http::{CacheHttp, Http};
@@ -23,7 +23,7 @@ const BOT_HELP: &str =
 -mod [add,remove] discord_id_64 #Add moderator
 -map add {url/map} gamemode alias #Add map to pool
 -map vote start (X) #Start map vote with X choices, default 3
--map pool #show map pool";
+-map list #show map pool";
 
 #[derive(Debug, Clone)]
 pub struct AdminCommandError {
@@ -42,6 +42,7 @@ pub enum BotErrorKind {
     VoteInProgress,
     VoteNotInProgress,
     CouldNotReply,
+    InvalidVoteAmount,
 }
 
 enum IvanError {
@@ -158,7 +159,7 @@ fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut 
         "add" => map_add(arguments, framework, msg, ctx),
         "remove" => map_remove(arguments, framework, msg, ctx),
         "vote" => handle_vote(arguments, framework, msg, ctx, concurrent_framework),
-        "pool" => handle_map_pool(framework, msg, ctx),
+        "list" => handle_map_pool(framework, msg, ctx),
         command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
     }
 }
@@ -177,8 +178,18 @@ fn make_message<T: Display>(maps: &Vec<T>) -> String {
 
 fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), AdminCommandError> {
     let second = pa(arguments, 2)?;
+    let choices = pa(arguments, 3);
+    let amount = match choices {
+        Ok(value) => parse_u32(value).map_err(|err| {
+            AdminCommandError { input: err.input, kind: BotErrorKind::InvalidArgument }
+        })?,
+        Err(err) => MAX_VOTE_MAPS
+    };
+    if amount < 2 {
+        return Err(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount });
+    }
     match second {
-        "start" => handle_vote_start(framework, msg, ctx, concurrent_framework),
+        "start" => handle_vote_start(framework, msg, ctx, concurrent_framework, amount as usize),
         "finish" => handle_vote_finish(framework, msg, &ctx.http),
         command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
     }

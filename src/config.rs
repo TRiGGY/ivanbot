@@ -1,5 +1,5 @@
 use confy::*;
-use serde::{Serialize, Deserialize };
+use serde::{Serialize, Deserialize};
 use std::env::var;
 use rand;
 use rand::seq::SliceRandom;
@@ -7,9 +7,9 @@ use crate::pavlov::GameMode;
 use std::fmt::Display;
 use serde::export::Formatter;
 use core::fmt;
+use crate::model::{AdminCommandError, BotErrorKind};
 
 const IVAN_CONFIG: &str = "~/ivan";
-
 
 
 #[derive(Serialize, Deserialize)]
@@ -31,7 +31,7 @@ pub struct PoolMap {
 
 impl Display for PoolMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f,"map: \"{}\" \t({}) \tgamemode: {}",self.alias,self.map,self.gamemode)
+        write!(f, "map: \"{}\" \t({}) \tgamemode: {}", self.alias, self.map, self.gamemode)
     }
 }
 
@@ -83,14 +83,14 @@ impl IvanConfig {
     pub fn add_alias(&mut self, alias: String, mapname: String) {
         self.aliases.push((alias, mapname));
         let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
-        confy::store_path(path,self).unwrap();
+        confy::store_path(path, self).unwrap();
     }
     pub fn remove_alias(&mut self, alias: String) {
-        self.aliases.retain(|(key,value)|{
+        self.aliases.retain(|(key, value)| {
             *key.to_lowercase() != alias.to_lowercase() && *value != alias
         });
         let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
-        confy::store_path(path,self).unwrap();
+        confy::store_path(path, self).unwrap();
     }
     pub fn resolve_alias(&self, alias: &str) -> Option<String> {
         self.aliases.iter().find(|(key, _)| {
@@ -103,26 +103,29 @@ impl IvanConfig {
     pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) {
         self.maps.push(PoolMap { map, gamemode, alias });
         let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
-        confy::store_path(path,self).unwrap();
+        confy::store_path(path, self).unwrap();
     }
     pub fn remove_map(&mut self, alias: String) {
-        self.maps.retain(|map|{
+        self.maps.retain(|map| {
             map.alias != alias && map.map != alias
         });
         let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
-        confy::store_path(path,self).unwrap();
+        confy::store_path(path, self).unwrap();
     }
-    pub fn get_maps_random(&self, amount: usize) -> Vec<&PoolMap> {
+    pub fn get_maps_random(&self, amount: usize) -> Result<Vec<&PoolMap>, AdminCommandError> {
+        if self.maps.len() < amount {
+            return Err(AdminCommandError { input: format!("{} was more than the amount of maps in the pool",amount), kind: BotErrorKind::InvalidVoteAmount });
+        }
         let value: Vec<&PoolMap> = self.maps.choose_multiple(&mut rand::thread_rng(), amount).collect();
-        value.clone()
+        return Ok(value.clone())
     }
     pub fn get_maps(&self) -> &Vec<PoolMap> {
         &self.maps
     }
 
     pub fn get_alias_list(&self) -> Vec<String> {
-        self.aliases.iter().map(|(key,value)| {
-            format!("alias: {} map: {}",key,value)
+        self.aliases.iter().map(|(key, value)| {
+            format!("alias: {} map: {}", key, value)
         }).collect()
     }
 }

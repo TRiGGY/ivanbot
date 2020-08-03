@@ -186,6 +186,7 @@ pub fn get_error_botcommand(error: &AdminCommandError) -> String {
         BotErrorKind::VoteInProgress => format!("There's already a vote in progress: {}",error.input),
         BotErrorKind::VoteNotInProgress => format!("There's no vote in progress: {}",error.input),
         BotErrorKind::CouldNotReply => format!("Could not reply to the channel"),
-        BotErrorKind::InvalidGameMode => format!("Invalid game mode valid \"{}\" valid [DM,TDM,GUN,SND]",error.input)
+        BotErrorKind::InvalidGameMode => format!("Invalid game mode valid \"{}\" valid [DM,TDM,GUN,SND]",error.input),
+        BotErrorKind::InvalidVoteAmount => format!("Can't start a vote of this size because: {}",error.input)
     }
 }
