@@ -179,7 +179,7 @@ pub fn get_error_pavlov(error: &PavlovError) -> (String, bool) {
 pub fn get_error_botcommand(error: &AdminCommandError) -> String {
     match &error.kind {
         BotErrorKind::InvalidArgument => format!("Invalid argument \"{}\"", error.input),
-        BotErrorKind::InvalidCommand => format!("Invalid command \"{}\"", error.input),
+        BotErrorKind::InvalidCommand => format!("Invalid command \"{}\" try -bothelp (for bot commands) and -help (for pavlov commands)", error.input),
         BotErrorKind::MissingArgument => format!("Missing argument {}", error.input),
         BotErrorKind::ErrorConfig => format!("Missing argument {}", error.input),
         BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input),

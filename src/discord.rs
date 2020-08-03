@@ -1,9 +1,9 @@
 use serenity::client::{Client, EventHandler};
-use serenity::model::channel::{Message, ReactionType};
+use serenity::model::channel::{Message};
 use serenity::prelude::{Context};
 use serenity::framework::Framework;
-use crate::connect::{get_error_pavlov, maintain_connection, get_error_botcommand};
-use crate::pavlov::{PavlovCommands, parse_map, parse_game_mode, PavlovError, ErrorKind};
+use crate::connect::{maintain_connection};
+use crate::pavlov::{PavlovCommands};
 use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
@@ -12,24 +12,11 @@ use threadpool::ThreadPool;
 
 use std::sync::mpsc::{Sender, Receiver};
 use crate::config::{get_config, IvanConfig};
-use regex::Regex;
-use std::fmt::{Display};
-use serde::export::Formatter;
-use core::fmt;
-use std::ops::{Add, Deref};
-use rand::seq::IteratorRandom;
-use serenity::model::id::{MessageId, ChannelId, EmojiId};
-use serenity::utils::parse_emoji;
-use serenity::model::guild::Emoji;
-use serenity::model::channel::ReactionType::Unicode;
-use serenity::model::misc::EmojiIdentifier;
-use serenity::model::gateway::ActivityEmoji;
-use crate::model::{handle_command, AdminCommandError, BotErrorKind, reply};
-use crate::parsing::{pa, parse_discord_id};
-use crate::model::BotErrorKind::InvalidMapAlias;
+use crate::model::{handle_command};
 use crate::voting::Vote;
-use std::sync::{Mutex, RwLockWriteGuard, Arc};
+use std::sync::{Mutex, Arc};
 use serenity::CacheAndHttp;
+use crate::permissions::PermissionLevel;
 
 
 struct Handler;
@@ -38,12 +25,12 @@ impl EventHandler for Handler {}
 
 pub struct ConcurrentFramework {
     pub data: Arc<Mutex<CustomFramework>>,
-    pub cache: Arc<CacheAndHttp>
+    pub cache: Arc<CacheAndHttp>,
 }
 
 impl Framework for ConcurrentFramework {
-    fn dispatch(&mut self, ctx: Context, msg: Message, threadpool: &ThreadPool) {
-        let mut mutex = self.data.lock();
+    fn dispatch(&mut self, ctx: Context, msg: Message, _: &ThreadPool) {
+        let mutex = self.data.lock();
         return match mutex {
             Ok(mut guard) => {
                 event_handler(&mut guard, ctx, msg, self)
@@ -82,7 +69,7 @@ pub fn run_discord() {
 
     let concurrent_framework = ConcurrentFramework {
         data: arc,
-        cache: client.cache_and_http.clone()
+        cache: client.cache_and_http.clone(),
     };
 
     client.with_framework(concurrent_framework);
@@ -92,8 +79,9 @@ pub fn run_discord() {
 }
 
 
-fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message,concurrent_framework:  &ConcurrentFramework ) {
-    if !authenticate(&msg, &framework.config) {
+fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message, concurrent_framework: &ConcurrentFramework) {
+    let permission_level = authenticate(&msg, &framework.config);
+    if let PermissionLevel::None = permission_level {
         return;
     }
     if msg.author.bot {
@@ -105,14 +93,24 @@ fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message,con
     let cloned = msg.content.clone();
     let stripped = cloned.trim_start_matches("-");
     let values: Vec<&str> = stripped.split_whitespace().collect();
-    handle_command(framework, ctx, msg, &values, concurrent_framework);
+    handle_command(framework, ctx, msg, &values, concurrent_framework, permission_level);
 }
 
 
-fn authenticate(msg: &Message, config: &IvanConfig) -> bool {
+fn authenticate(msg: &Message, config: &IvanConfig) -> PermissionLevel {
     let uid = msg.author.id.0;
-    config.is_admin(uid)
+    if config.is_admin(uid) {
+        return PermissionLevel::Admin;
+    }
+    if config.is_mod(uid) {
+        return PermissionLevel::Mod;
+    }
+    if IvanConfig::allow_users() {
+        return PermissionLevel::User;
+    }
+    return PermissionLevel::None;
 }
+
 
 fn get_discord_token() -> String {
     let discord_token = var("DISCORD_TOKEN");

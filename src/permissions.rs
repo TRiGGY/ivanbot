@@ -1,6 +1,19 @@
 use crate::config::IvanConfig;
 use crate::parsing::{pa, parse_discord_id};
 use crate::model::{AdminCommandError, BotErrorKind};
+use std::fmt::Display;
+use serde::export::Formatter;
+extern crate derive_more;
+use derive_more::{Add, Display, From, Into};
+
+#[derive(Display)]
+pub enum PermissionLevel {
+    Admin,
+    Mod,
+    User,
+    None
+}
+
 
 pub fn handle_mod(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
     let mode = pa(arguments, 1)?;

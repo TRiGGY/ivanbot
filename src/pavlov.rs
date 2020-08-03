@@ -6,7 +6,7 @@ use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 use crate::config::IvanConfig;
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use serde::{Serialize, Deserialize  };
 
 pub enum PavlovCommands {
     Help,
@@ -198,7 +198,7 @@ impl Display for PavlovCommands {
             InspectPlayer(steamid) => format!("InspectPlayer {}", steamid),
             RefreshList => "RefreshList".to_string(),
             ServerInfo => "ServerInfo".to_string(),
-            Disconnect => "Disconnect".to_string(),
+            //Disconnect => "Disconnect".to_string(),
             ResetSND => "ResetSND".to_string(),
             SetPlayerSkin(steamid, skin) => format!("SetPlayerSkin {} {}", steamid, skin),
             SetLimitedAmmoType(ammo) => format!("SetLimitedAmmoType {}", ammo),

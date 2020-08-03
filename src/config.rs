@@ -1,16 +1,16 @@
 use confy::*;
-use serde::{Serialize, Deserialize, Serializer, Deserializer};
+use serde::{Serialize, Deserialize };
 use std::env::var;
-use std::collections::HashMap;
 use rand;
 use rand::seq::SliceRandom;
-use serde::ser::SerializeStruct;
 use crate::pavlov::GameMode;
 use std::fmt::Display;
 use serde::export::Formatter;
 use core::fmt;
 
 const IVAN_CONFIG: &str = "~/ivan";
+
+
 
 #[derive(Serialize, Deserialize)]
 pub struct IvanConfig {
@@ -45,8 +45,12 @@ impl IvanConfig {
         }
         return self.admins.contains(&id);
     }
+    pub fn is_mod(&self, id: u64) -> bool {
+        return self.mods.contains(&id);
+    }
+
     pub fn allow_users() -> bool {
-        let allow_users = var("ALLOW_USERS").unwrap_or_else(|err| { "false".to_string() });
+        let allow_users = var("ALLOW_USERS").unwrap_or_else(|_| { "false".to_string() });
         if allow_users.to_lowercase() != "true" {
             false
         } else {
@@ -57,50 +61,56 @@ impl IvanConfig {
     pub fn add_admin(&mut self, id: u64) -> Result<(), ConfyError> {
         self.admins.retain(|item| { *item != id });
         self.admins.push(id);
-        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
         confy::store_path(path, self)
     }
     pub fn remove_admin(&mut self, id: u64) -> Result<(), ConfyError> {
         self.admins.retain(|item| { *item != id });
-        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
         confy::store_path(path, self)
     }
     pub fn add_mod(&mut self, id: u64) -> Result<(), ConfyError> {
         self.mods.retain(|item| { *item != id });
         self.mods.push(id);
-        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
         confy::store_path(path, self)
     }
     pub fn remove_mod(&mut self, id: u64) -> Result<(), ConfyError> {
         self.mods.retain(|item| { *item != id });
-        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
         confy::store_path(path, self)
     }
     pub fn add_alias(&mut self, alias: String, mapname: String) {
         self.aliases.push((alias, mapname));
-        let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
-        confy::store_path(path,self);
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
+        confy::store_path(path,self).unwrap();
     }
     pub fn remove_alias(&mut self, alias: String) {
         self.aliases.retain(|(key,value)|{
-            *key != alias && *value != alias
-        })
+            *key.to_lowercase() != alias.to_lowercase() && *value != alias
+        });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
+        confy::store_path(path,self).unwrap();
     }
     pub fn resolve_alias(&self, alias: &str) -> Option<String> {
-        self.aliases.iter().find(|(key, value)| {
-            key.eq(alias)
-        }).map(|(key, value)| {
+        self.aliases.iter().find(|(key, _)| {
+            *key.to_lowercase() == alias.to_lowercase()
+        }).map(|(_, value)| {
             value.clone()
         })
     }
 
     pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) {
         self.maps.push(PoolMap { map, gamemode, alias });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
+        confy::store_path(path,self).unwrap();
     }
     pub fn remove_map(&mut self, alias: String) {
         self.maps.retain(|map|{
             map.alias != alias && map.map != alias
         });
+        let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
+        confy::store_path(path,self).unwrap();
     }
     pub fn get_maps_random(&self, amount: usize) -> Vec<&PoolMap> {
         let value: Vec<&PoolMap> = self.maps.choose_multiple(&mut rand::thread_rng(), amount).collect();
@@ -110,6 +120,11 @@ impl IvanConfig {
         &self.maps
     }
 
+    pub fn get_alias_list(&self) -> Vec<String> {
+        self.aliases.iter().map(|(key,value)| {
+            format!("alias: {} map: {}",key,value)
+        }).collect()
+    }
 }
 
 /// `MyConfig` implements `Default`
@@ -118,7 +133,7 @@ impl ::std::default::Default for IvanConfig {
 }
 
 pub fn get_config() -> Result<IvanConfig, confy::ConfyError> {
-    let path = var("CONFIG_PATH").unwrap_or_else(|err| { String::from(IVAN_CONFIG) });
+    let path = var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
     let cfg: IvanConfig = confy::load_path(path)?;
     Ok(cfg)
 }
