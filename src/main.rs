@@ -1,3 +1,4 @@
+mod output;
 mod parsing;
 mod permissions;
 mod voting;

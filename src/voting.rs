@@ -2,20 +2,20 @@ use std::fmt::{Display, Formatter};
 use core::fmt;
 use serenity::model::channel::Message;
 use serenity::client::Context;
-use crate::discord::BotCommandError;
+use crate::discord::{ CustomFramework};
 use std::ops::Add;
 use serenity::model::id::{MessageId, ChannelId};
 use serenity::model::channel::ReactionType::Unicode;
-use crate::model::{BotCommandError, BotErrorKind};
+use crate::model::{AdminCommandError, BotErrorKind, reply};
 use crate::pavlov::PavlovError;
 use rand::seq::IteratorRandom;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
 const HUNDRED: char = '💯';
+const MAX_VOTE_MAPS: usize = 3;
 
-
-struct Vote {
+pub struct Vote {
     maps: Vec<Choice>,
     message_id: MessageId,
     channel_id: ChannelId,
@@ -41,10 +41,10 @@ impl Display for Choice {
     }
 }
 
-fn handle_vote_start(framework: &&mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<Message, BotCommandError> {
+pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
     match &mut framework.vote {
         Some(vote) => {
-            Err(BotCommandError {
+            Err(AdminCommandError {
                 input: "".to_string(),
                 kind: BotErrorKind::VoteInProgress,
             })
@@ -64,19 +64,20 @@ fn handle_vote_start(framework: &&mut CustomFramework, msg: &mut Message, ctx: &
             let reply = reply(msg, ctx, vote.to_string()).unwrap();
             vote.message_id = reply.id;
             framework.vote = Some(vote);
-            Ok(reply)
+            Ok(())
         }
     }
 }
 
-fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<Message, BotCommandError> {
-    match framework.vote {
+pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<(), AdminCommandError> {
+    match &framework.vote {
         Some(vote) => {
             let message = &mut ctx.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
             let winner = determine_winner(vote, message);
-            reply(msg, ctx, format!("The winner is: {}", winner))
+            reply(msg, ctx, format!("The winner is: {}", winner));
+            Ok(())
         }
-        None => Err(BotCommandError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })
+        None => Err(AdminCommandError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })
     }
 }
 
@@ -96,9 +97,9 @@ fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
     }
 }
 
-fn convert_to_not_found() -> fn(PavlovError) -> BotCommandError {
-    return |i: PavlovError| -> BotCommandError {
-        BotCommandError {
+pub fn convert_to_not_found() -> fn(PavlovError) -> AdminCommandError {
+    return |i: PavlovError| -> AdminCommandError {
+        AdminCommandError {
             input: i.input,
             kind: BotErrorKind::MissingArgument,
         }

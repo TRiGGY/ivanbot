@@ -10,8 +10,7 @@ use std::{io};
 use crate::credentials::LoginData;
 use std::thread;
 use std::sync::mpsc::{Receiver, Sender, channel};
-use crate::discord::{BotCommandError, BotErrorKind};
-use crate::model::{BotErrorKind, BotCommandError};
+use crate::model::{BotErrorKind, AdminCommandError};
 
 const AUTHENTICATED: &str = "Authenticated=1";
 
@@ -177,7 +176,7 @@ pub fn get_error_pavlov(error: &PavlovError) -> (String, bool) {
     }
 }
 
-pub fn get_error_botcommand(error: &BotCommandError) -> String {
+pub fn get_error_botcommand(error: &AdminCommandError) -> String {
     match &error.kind {
         BotErrorKind::InvalidArgument => format!("Invalid argument \"{}\"", error.input),
         BotErrorKind::InvalidCommand => format!("Invalid command \"{}\"", error.input),

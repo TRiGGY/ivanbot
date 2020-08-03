@@ -1,15 +1,15 @@
-use crate::model::{BotCommandError, BotErrorKind};
+use crate::model::{AdminCommandError, BotErrorKind};
 
-pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, BotCommandError> {
+pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, AdminCommandError> {
     (arguments.get(index)).ok_or_else(|| {
-        BotCommandError { input: "".to_string(), kind: BotErrorKind::MissingArgument }
+        AdminCommandError { input: "".to_string(), kind: BotErrorKind::MissingArgument }
     }).map(|value| { *value })
 }
 
 
-pub fn parse_discord_id(value: &str) -> Result<u64, BotCommandError> {
+pub fn parse_discord_id(value: &str) -> Result<u64, AdminCommandError> {
     value.parse::<u64>().map_err(|_error| {
-        BotCommandError { input: value.to_string(), kind: BotErrorKind::InvalidArgument }
+        AdminCommandError { input: value.to_string(), kind: BotErrorKind::InvalidArgument }
     })
 }
 

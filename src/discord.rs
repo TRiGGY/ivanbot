@@ -12,7 +12,6 @@ use threadpool::ThreadPool;
 
 use std::sync::mpsc::{Sender, Receiver};
 use crate::config::{get_config, IvanConfig};
-use crate::discord::BotErrorKind::InvalidMapAlias;
 use regex::Regex;
 use std::fmt::{Display};
 use serde::export::Formatter;
@@ -25,16 +24,22 @@ use serenity::model::guild::Emoji;
 use serenity::model::channel::ReactionType::Unicode;
 use serenity::model::misc::EmojiIdentifier;
 use serenity::model::gateway::ActivityEmoji;
-use crate::model::{handle_command, BotCommandError, BotErrorKind};
-use crate::parsing::pa;
+use crate::model::{handle_command, AdminCommandError, BotErrorKind, reply};
+use crate::parsing::{pa, parse_discord_id};
 use crate::model::BotErrorKind::InvalidMapAlias;
-
-const MAX_VOTE_MAPS: usize = 3;
+use crate::voting::Vote;
 
 
 struct Handler;
 
 impl EventHandler for Handler {}
+pub struct CustomFramework {
+    pub sender: Sender<PavlovCommands>,
+    pub receiver: Receiver<String>,
+    pub config: IvanConfig,
+    pub vote: Option<Vote>,
+}
+
 
 pub fn run_discord() {
     let token = get_discord_token();
@@ -59,13 +64,6 @@ pub fn run_discord() {
     }
 }
 
-struct CustomFramework {
-    sender: Sender<PavlovCommands>,
-    receiver: Receiver<String>,
-    config: IvanConfig,
-    vote: Option<Vote>,
-}
-
 impl Framework for CustomFramework {
     fn dispatch(&mut self, mut ctx: Context, mut msg: Message, _: &ThreadPool) {
         if !authenticate(&msg, &self.config) {
@@ -80,19 +78,13 @@ impl Framework for CustomFramework {
         let cloned = msg.content.clone();
         let stripped = cloned.trim_start_matches("-");
         let values: Vec<&str> = stripped.split_whitespace().collect();
-        handle_command(self,&mut ctx, &mut msg, &values);
+        handle_command(self, &mut ctx, &mut msg, &values);
     }
 }
-
 
 fn authenticate(msg: &Message, config: &IvanConfig) -> bool {
     let uid = msg.author.id.0;
     config.is_admin(uid)
-}
-
-fn output(ctx: Context, msg: Message, message: String) {
-    println!("{}", &message);
-    msg.reply(ctx, message).unwrap();
 }
 
 fn get_discord_token() -> String {
@@ -106,48 +98,6 @@ fn get_discord_token() -> String {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-fn handle_map_add(arguments: &Vec<&str>, framework: &&mut CustomFramework, msg: &mut Message, ctx: &mut Context) -> Result<Message, BotCommandError> {
-    let map = convert_error_not_found(parse_map(pa(arguments, 2)?, &framework.config))?;
-    let gamemode = pa(arguments, 3)?;
-    let alias = pa(arguments, 4)?;
-    framework.config.add_alias(alias.to_string(), map.clone());
-    framework.config.add_map(map.clone(), gamemode.to_string(), alias.to_string());
-    reply(msg, ctx, format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias))
-}
-
-
-fn convert_error_not_found<T>(result: Result<T, PavlovError>) -> Result<T, BotCommandError> {
-    result.map_err(convert_to_not_found())
-}
-
-fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, BotCommandError> {
-    let mode = pa(arguments, 1)?;
-    match mode {
-        "add" => {
-            let map = parse_map(pa(arguments, 2)?, config).map_err(|err| {
-                BotCommandError { kind: InvalidMapAlias, input: err.input }
-            })?;
-            let alias = check_alias(pa(arguments, 3)?)?;
-            config.add_alias(alias.clone(), map.clone());
-            Ok(format!("alias \"{}\" to map \"{}\" created", alias, map))
-        }
-        "remove" => remove_admin(parse_discord_id(pa(arguments, 2)?)?, config),
-        _ => Err(BotCommandError {
-            input: mode.to_string(),
-            kind: BotErrorKind::InvalidArgument,
-        })
-    }
-}
 
 
 
