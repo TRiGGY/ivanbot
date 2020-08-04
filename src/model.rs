@@ -130,7 +130,7 @@ fn mod_allowed(argument: String) -> bool {
 
 fn user_allowed(argument: String) -> bool {
     match argument.as_str() {
-        "inspectplayer" | "serverinfo" | "refreshlist" => true,
+        "inspectplayer" | "serverinfo" | "refreshlist" | "bothelp" => true,
         _ => false
     }
 }

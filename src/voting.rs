@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use serenity::model::channel::{Message, ReactionType};
+use serenity::model::channel::{Message, ReactionType, MessageReaction};
 use serenity::client::Context;
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use std::ops::{Add};
@@ -99,15 +99,10 @@ fn create_thread(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: Arc<
         let guard = framework_clone.lock();
         match guard {
             Ok(mut value) => {
-                match &value.vote {
-                    Some(vote) => {
-                        let message = &mut cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
-                        handle_vote_finish(&mut value, message, &cache_clone.http).unwrap();
-                        ()
-                    }
-                    None => {
-                        ()
-                    }
+                if let Some(vote) = &value.vote {
+                    let message = &mut cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
+                    handle_vote_finish(&mut value, message, &cache_clone.http).unwrap();
+                    ()
                 }
             }
             Err(err) => {
@@ -141,7 +136,7 @@ pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ht
 }
 
 fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
-    let emoji = msg.reactions.iter().filter_map(|reaction| {
+    let emoji: Vec<(&MessageReaction, &String)> = msg.reactions.iter().filter_map(|reaction| {
         match &reaction.reaction_type {
             Unicode(value) => { Some((reaction, value)) }
             //ReactionType::Custom { animated, id, name } => { Some(id) }
@@ -149,10 +144,18 @@ fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
         }
     }).filter(|(_, emoji)| {
         vote.maps.iter().any(|value| { value.id == **emoji })
-    }).max_by(|(first, _), (second, _)| { first.count.cmp(&second.count) });
-    match emoji {
+    }).collect();
+    let max = emoji.iter().max_by(|(first, _), (second, _)| { first.count.cmp(&second.count) });
+    match max {
         None => panic!("no emoji found"),
-        Some((_, value)) => vote.maps.iter().find(|el| { el.id == *value }).unwrap()
+        Some((reaction, _)) => {
+            match emoji.iter().filter(|(react, element)| {
+                react.count >= reaction.count
+            }).choose(&mut rand::thread_rng()) {
+                Some((_, value)) => vote.maps.iter().find(|el| { el.id == **value }).unwrap(),
+                None => panic!("no winner found")
+            }
+        }
     }
 }
 
@@ -167,7 +170,7 @@ pub fn convert_to_not_found() -> fn(PavlovError) -> AdminCommandError {
 
 fn get_random_emojis(amount: usize) -> Result<Vec<String>, AdminCommandError> {
     if amount > 6 {
-        return Err(AdminCommandError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)",amount)});
+        return Err(AdminCommandError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)", amount) });
     }
     let emojis = vec!(HUNDRED.to_string(), KNIFE.to_string(), SALT.to_string(), MONEY.to_string(), CHAMPAGNE.to_string(), SMIRK.to_string());
     let mut chosen = emojis.iter().choose_multiple(&mut rand::thread_rng(), amount);
