@@ -1,6 +1,6 @@
-#Introduction
+# Introduction
 IvanBot is a discord bot that allows control of a pavlov gameserver through text communication. All pavlov RCON commands are implemented and checked for correctness before being send to the pavlov server. Features that I wanted weren't available in other bots so I decided to try to learn some Rust in the progress of making this bot.
-#Features
+# Features
 * All RCON pavlov commands implemented
 * Manage map aliasses allowing you to -map add *steamworkshop name* for example -alias add https://steamcommunity.com/sharedfiles/filedetails/?id=1454448750 manor_ttt
 * Enhanced version of certain commands. For example, -SwitchMap *workshop_url* *gamemode* is able to resolve the map ID automatically.
@@ -19,7 +19,7 @@ IvanBot is a discord bot that allows control of a pavlov gameserver through text
     * **map vote start (X)** #Start map vote with X (optional) choices, default 3
     * **map list**
 
-#Installation 
+# Installation 
 First you'll need to gather some things:
 1. The IP+port ("127.0.0.1:9000") of your running pavlov server. Please note it is **NOT RECOMMENDED** to expose the pavlov RCON port to the internet. It uses an insecure login mechanism and could potentially be a security risk. 
 2. The pavlov plaintext RCON password you have set up in RconSettings.ini: http://wiki.pavlov-vr.com/index.php?title=Dedicated_server#Rcon_Overview_and_Commands
@@ -42,7 +42,7 @@ docker run -d  \
 ramoneelman/ivanbot
 ```
 
-#Tutorial
+# Tutorial
 All bot commands must always start with "-".
 
 When the bot first starts it will only have 1 known admin user. You. To add more people right click on them in Discord and "Copy ID", then execute:
