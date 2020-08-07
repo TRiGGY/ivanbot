@@ -1,12 +1,10 @@
 use crate::config::IvanConfig;
 use crate::parsing::{pa, parse_discord_id};
 use crate::model::{AdminCommandError, BotErrorKind};
-use std::fmt::Display;
-use serde::export::Formatter;
 extern crate derive_more;
-use derive_more::{Add, Display, From, Into};
+use derive_more::{Display};
 
-#[derive(Display)]
+#[derive(Display,PartialOrd, PartialEq)]
 pub enum PermissionLevel {
     Admin,
     Mod,
@@ -84,3 +82,29 @@ fn remove_admin(id: u64, config: &mut IvanConfig) -> Result<String, AdminCommand
         format!("Removed admin with id \"{}\" from the admin list", id)
     })
 }
+
+pub fn mod_allowed(argument: String) -> bool {
+    user_allowed(argument.clone()) || match argument.as_str() {
+        "switchmap" |
+        "rotatemap" |
+        "alias" |
+        "map" |
+        "switchteam" |
+        "giveitem" |
+        "givecash" |
+        "resetsnd" |
+        "setplayerskin" |
+        "setlimitedammotype"
+        => true,
+        _ => false
+    }
+}
+
+pub fn user_allowed(argument: String) -> bool {
+    match argument.as_str() {
+        "inspectplayer" | "serverinfo" | "refreshlist" | "bothelp" => true,
+        _ => false
+    }
+}
+
+

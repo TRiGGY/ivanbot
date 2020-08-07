@@ -14,7 +14,6 @@ use serenity::{Error, CacheAndHttp};
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
-use rand::thread_rng;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -149,7 +148,7 @@ fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
     match max {
         None => panic!("no emoji found"),
         Some((reaction, _)) => {
-            match emoji.iter().filter(|(react, element)| {
+            match emoji.iter().filter(|(react, _)| {
                 react.count >= reaction.count
             }).choose(&mut rand::thread_rng()) {
                 Some((_, value)) => vote.maps.iter().find(|el| { el.id == **value }).unwrap(),

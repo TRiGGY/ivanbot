@@ -84,6 +84,12 @@ fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message, co
     if let PermissionLevel::None = permission_level {
         return;
     }
+    if !(PermissionLevel::Admin == permission_level
+        &&
+        msg.guild_id == None) &&
+        !right_channel(msg.channel_id.0, &framework.config) {
+        return;
+    }
     if msg.author.bot {
         return;
     }
@@ -111,6 +117,12 @@ fn authenticate(msg: &Message, config: &IvanConfig) -> PermissionLevel {
     return PermissionLevel::None;
 }
 
+fn right_channel(channel_id: u64, config: &IvanConfig) -> bool {
+    match config.get_channel_lock() {
+        Some(lock) => lock == channel_id,
+        None => true
+    }
+}
 
 fn get_discord_token() -> String {
     let discord_token = var("DISCORD_TOKEN");

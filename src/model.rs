@@ -4,7 +4,7 @@ use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, par
 use crate::connect::{get_error_pavlov, get_error_botcommand};
 use regex::Regex;
 use crate::parsing::{pa};
-use crate::permissions::{handle_admin, handle_mod, PermissionLevel};
+use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed, user_allowed};
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::model::IvanError::{BotPavlovError, BotCommandError};
 use crate::output::output;
@@ -23,7 +23,9 @@ const BOT_HELP: &str =
 -mod [add,remove] discord_id_64 #Add moderator
 -map add {url/map} gamemode alias #Add map to pool
 -map vote start (X) #Start map vote with X choices, default 3
--map list #show map pool";
+-map list #show map pool
+-channel [lock,unlock] #Locks/Unlocks the channel. The bot will only respond in this channel or DM's from admins
+";
 
 #[derive(Debug, Clone)]
 pub struct AdminCommandError {
@@ -101,6 +103,10 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
         "bothelp" => output(ctx, msg, BOT_HELP.to_string()),
         "mod" => output(ctx, msg, handle_mod(arguments, &mut framework.config)?),
         "map" => handle_map(arguments, framework, msg, ctx, concurrent_framework)?,
+        "channel" => {
+            let channel = handle_channel(arguments, msg, &mut framework.config)?;
+            output(ctx, msg, channel);
+        }
         _ => {
             let command = PavlovCommands::parse_from_arguments(arguments, &framework.config)?;
             println!("{}", &command.to_string());
@@ -110,31 +116,6 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
     };
     Ok(())
 }
-
-fn mod_allowed(argument: String) -> bool {
-    user_allowed(argument.clone()) || match argument.as_str() {
-        "switchmap" |
-        "rotatemap" |
-        "alias" |
-        "map" |
-        "switchteam" |
-        "giveitem" |
-        "givecash" |
-        "resetsnd" |
-        "setplayerskin" |
-        "setlimitedammotype"
-        => true,
-        _ => false
-    }
-}
-
-fn user_allowed(argument: String) -> bool {
-    match argument.as_str() {
-        "inspectplayer" | "serverinfo" | "refreshlist" | "bothelp" => true,
-        _ => false
-    }
-}
-
 
 pub fn reply(msg: &mut Message, cache_http: &Http, message: String) -> Result<Message, AdminCommandError> {
     msg.reply(cache_http, message).map_err(|_| {
@@ -152,6 +133,22 @@ fn check_alias(value: &str) -> Result<String, AdminCommandError> {
         })
     }
 }
+
+fn handle_channel(arguments: &Vec<&str>, msg: &mut Message, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
+    let argument = pa(arguments, 1)?;
+    match argument {
+        "lock" => {
+            config.add_channel_lock(msg.channel_id.0);
+            Ok(format!("Locked bot channel to: {}", msg.channel_id))
+        }
+        "unlock" => {
+            config.remove_channel_lock();
+            Ok("removed channel lock".to_string())
+        }
+        x => Err(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument })
+    }
+}
+
 
 fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), AdminCommandError> {
     let first = pa(arguments, 1)?;
@@ -183,7 +180,7 @@ fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut
         Ok(value) => parse_u32(value).map_err(|err| {
             AdminCommandError { input: err.input, kind: BotErrorKind::InvalidArgument }
         })?,
-        Err(err) => MAX_VOTE_MAPS
+        Err(_) => MAX_VOTE_MAPS
     };
     if amount < 2 {
         return Err(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount });
@@ -227,7 +224,7 @@ fn map_add(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Mes
     let gamemode = parse_game_mode(pa(arguments, 3)?).map_err(|err| {
         AdminCommandError { input: err.input, kind: BotErrorKind::InvalidGameMode }
     })?;
-    let alias = pa(arguments, 4)?;
+    let alias = check_alias(pa(arguments, 4)?)?;
     framework.config.add_alias(alias.to_string(), map.clone());
     framework.config.add_map(map.clone(), gamemode.clone(), alias.to_string());
     reply(msg, ctx.http(), format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias))?;
