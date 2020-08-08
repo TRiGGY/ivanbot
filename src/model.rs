@@ -6,9 +6,9 @@ use regex::Regex;
 use crate::parsing::{pa};
 use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed, user_allowed};
 use crate::discord::{CustomFramework, ConcurrentFramework};
-use crate::model::IvanError::{BotPavlovError, BotCommandError};
+use crate::model::IvanError::{BotPavlovError, BotCommandError, BotConfigError};
 use crate::output::output;
-use crate::config::IvanConfig;
+use crate::config::{IvanConfig, ConfigError};
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found, MAX_VOTE_MAPS};
 use std::ops::Add;
@@ -50,11 +50,18 @@ pub enum BotErrorKind {
 enum IvanError {
     BotCommandError(AdminCommandError),
     BotPavlovError(PavlovError),
+    BotConfigError(ConfigError),
 }
 
 impl From<PavlovError> for IvanError {
     fn from(bot_command: PavlovError) -> Self {
         BotPavlovError(bot_command)
+    }
+}
+
+impl From<ConfigError> for IvanError {
+    fn from(bot_command: ConfigError) -> Self {
+        BotConfigError(bot_command)
     }
 }
 
@@ -77,6 +84,9 @@ pub fn handle_command(framework: &mut CustomFramework, mut ctx: Context, mut msg
                 IvanError::BotPavlovError(pavlov_error) => {
                     let (error_message, _) = get_error_pavlov(&pavlov_error);
                     output(&mut ctx, &mut msg, error_message);
+                }
+                BotConfigError(config_error) => {
+                    output(&mut ctx, &mut msg, config_error.to_string())
                 }
             }
         }
@@ -134,34 +144,34 @@ fn check_alias(value: &str) -> Result<String, AdminCommandError> {
     }
 }
 
-fn handle_channel(arguments: &Vec<&str>, msg: &mut Message, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
+fn handle_channel(arguments: &Vec<&str>, msg: &mut Message, config: &mut IvanConfig) -> Result<String, IvanError> {
     let argument = pa(arguments, 1)?;
     match argument {
         "lock" => {
-            config.add_channel_lock(msg.channel_id.0);
+            config.add_channel_lock(msg.channel_id.0)?;
             Ok(format!("Locked bot channel to: {}", msg.channel_id))
         }
         "unlock" => {
-            config.remove_channel_lock();
+            config.remove_channel_lock()?;
             Ok("removed channel lock".to_string())
         }
-        x => Err(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument })
+        x => Err(IvanError::BotCommandError(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument }))
     }
 }
 
 
-fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), AdminCommandError> {
+fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
     let first = pa(arguments, 1)?;
     match first.to_lowercase().as_str() {
         "add" => map_add(arguments, framework, msg, ctx),
         "remove" => map_remove(arguments, framework, msg, ctx),
         "vote" => handle_vote(arguments, framework, msg, ctx, concurrent_framework),
         "list" => handle_map_pool(framework, msg, ctx),
-        command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
+        command => Err(IvanError::BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }))
     }
 }
 
-fn handle_map_pool(framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), AdminCommandError> {
+fn handle_map_pool(framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), IvanError> {
     let maps = framework.config.get_maps();
     let message = "The map pool is currently:\n".to_string().add(make_message(maps).as_str());
     reply(msg, ctx.http(), format!("{}", message))?;
@@ -173,7 +183,7 @@ fn make_message<T: Display>(maps: &Vec<T>) -> String {
     message
 }
 
-fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), AdminCommandError> {
+fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
     let second = pa(arguments, 2)?;
     let choices = pa(arguments, 3);
     let amount = match choices {
@@ -183,17 +193,17 @@ fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut
         Err(_) => MAX_VOTE_MAPS
     };
     if amount < 2 {
-        return Err(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount });
+        return Err(IvanError::BotCommandError(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount }));
     }
     match second {
-        "start" => handle_vote_start(framework, msg, ctx, concurrent_framework, amount as usize),
-        "finish" => handle_vote_finish(framework, msg, &ctx.http),
-        command => { Err(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }) }
+        "start" => Ok(handle_vote_start(framework, msg, ctx, concurrent_framework, amount as usize)?),
+        "finish" => Ok(handle_vote_finish(framework, msg, &ctx.http)?),
+        command => { Err(IvanError::BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand })) }
     }
 }
 
 
-fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
+fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, IvanError> {
     let mode = pa(arguments, 1)?;
     match mode {
         "add" => {
@@ -201,12 +211,12 @@ fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String
                 AdminCommandError { kind: InvalidMapAlias, input: err.input }
             })?;
             let alias = check_alias(pa(arguments, 3)?)?;
-            config.add_alias(alias.clone(), map.clone());
+            config.add_alias(alias.clone(), map.clone())?;
             Ok(format!("alias \"{}\" to map \"{}\" created", alias, map))
         }
         "remove" => {
             let argument = pa(arguments, 2)?;
-            config.remove_alias(argument.to_string());
+            config.remove_alias(argument.to_string())?;
             Ok(format!("alias \"{}\" removed (if it existed)", argument))
         }
         "list" => {
@@ -215,29 +225,29 @@ fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String
         _ => Err(AdminCommandError {
             input: mode.to_string(),
             kind: BotErrorKind::InvalidArgument,
-        })
+        }.into())
     }
 }
 
-fn map_add(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), AdminCommandError> {
+fn map_add(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), IvanError> {
     let map = convert_error_not_found(parse_map(pa(arguments, 2)?, &framework.config))?;
     let gamemode = parse_game_mode(pa(arguments, 3)?).map_err(|err| {
         AdminCommandError { input: err.input, kind: BotErrorKind::InvalidGameMode }
     })?;
     let alias = check_alias(pa(arguments, 4)?)?;
-    framework.config.add_alias(alias.to_string(), map.clone());
-    framework.config.add_map(map.clone(), gamemode.clone(), alias.to_string());
+    framework.config.add_alias(alias.to_string(), map.clone())?;
+    framework.config.add_map(map.clone(), gamemode.clone(), alias.to_string())?;
     reply(msg, ctx.http(), format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias))?;
     Ok(())
 }
 
-fn map_remove(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), AdminCommandError> {
+fn map_remove(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), IvanError> {
     if framework.vote.is_some() {
-        return Err(AdminCommandError { input: "Can't remove a map when a vote is in progress".to_string(), kind: BotErrorKind::VoteInProgress });
+        return Err(AdminCommandError { input: "Can't remove a map when a vote is in progress".to_string(), kind: BotErrorKind::VoteInProgress }.into());
     }
     let alias_or_map = pa(arguments, 2)?;
-    framework.config.remove_alias(alias_or_map.to_string());
-    framework.config.remove_map(alias_or_map.to_string());
+    framework.config.remove_alias(alias_or_map.to_string())?;
+    framework.config.remove_map(alias_or_map.to_string())?;
     handle_map_pool(framework, msg, ctx)
 }
 

@@ -75,7 +75,7 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
                 }
             }).collect();
             let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id };
-            let mut reply = reply(msg, ctx.http(), vote.to_string()).unwrap();
+            let mut reply = reply(msg, ctx.http(), vote.to_string())?;
             for x in &vote.maps {
                 _react(&mut reply, ctx, &Unicode(x.id.clone())).map_err(|_| {
                     AdminCommandError { kind: BotErrorKind::CouldNotReply, input: "tried to react".to_string() }
@@ -101,7 +101,6 @@ fn create_thread(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: Arc<
                 if let Some(vote) = &value.vote {
                     let message = &mut cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
                     handle_vote_finish(&mut value, message, &cache_clone.http).unwrap();
-                    ()
                 }
             }
             Err(err) => {

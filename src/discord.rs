@@ -11,7 +11,7 @@ use threadpool::ThreadPool;
 
 
 use std::sync::mpsc::{Sender, Receiver};
-use crate::config::{get_config, IvanConfig};
+use crate::config::{get_config, IvanConfig, ConfigError};
 use crate::model::{handle_command};
 use crate::voting::Vote;
 use std::sync::{Mutex, Arc};
@@ -54,16 +54,12 @@ pub fn run_discord() {
     let token = get_discord_token();
     let mut client = Client::new(&token, Handler {}).unwrap();
     let login = get_login();
-    let config = get_config();
-    if let Err(why) = config {
-        println!("can't read config file: {}", why.to_string());
-        exit(1);
-    }
+    let config = recover_error(get_config());
     let (sender, receiver) = maintain_connection(login);
     let arc = Arc::new(Mutex::from(CustomFramework {
         sender,
         receiver,
-        config: config.unwrap(),
+        config: config,
         vote: None,
     }));
 
@@ -78,6 +74,15 @@ pub fn run_discord() {
     }
 }
 
+fn recover_error(error: Result<IvanConfig, ConfigError>) -> IvanConfig {
+    match error {
+        Err(err) => {
+            println!("Could not initialize config, recreating it because: {}", err);
+            IvanConfig::default()
+        }
+        Ok(ivan) => ivan
+    }
+}
 
 fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message, concurrent_framework: &ConcurrentFramework) {
     let permission_level = authenticate(&msg, &framework.config);

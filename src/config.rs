@@ -1,15 +1,36 @@
-use confy::*;
-use serde::{Serialize, Deserialize};
 use std::env::var;
 use rand;
 use rand::seq::SliceRandom;
 use crate::pavlov::GameMode;
-use std::fmt::Display;
+use derive_more::{Display};
 use serde::export::Formatter;
-use core::fmt;
+use core::{fmt, result};
 use crate::model::{AdminCommandError, BotErrorKind};
+use serde::{Deserialize, Serialize};
+use std::{fs };
+use serde_json::{to_string_pretty, from_str};
+use std::fmt::Error;
 
-const IVAN_CONFIG: &str = "~/ivan";
+const IVAN_CONFIG: &str = "~/ivan.json";
+
+#[derive(Debug, Clone)]
+pub struct ConfigError{
+    pub(crate) input: String,
+    pub(crate) kind: ConfigErrorKind,
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut Formatter<'_>) ->  result::Result<(), Error> {
+        write!(f,"Error: {} because of: {}",self.kind,self.input)
+    }
+}
+#[derive(Debug, Clone,Display)]
+pub enum ConfigErrorKind {
+    ReadConfigError,
+    SerializeError,
+    DeserializeError,
+    WriteError
+}
 
 
 #[derive(Serialize, Deserialize)]
@@ -30,7 +51,7 @@ pub struct PoolMap {
     pub alias: String,
 }
 
-impl Display for PoolMap {
+impl fmt::Display for PoolMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "map: \"{}\" \t({}) \tgamemode: {}", self.alias, self.map, self.gamemode)
     }
@@ -40,7 +61,7 @@ impl IvanConfig {
     pub fn is_admin(&self, id: u64) -> bool {
         let admin = var("ADMIN_ID");
         if admin.is_ok() {
-            if id.to_string().eq(&admin.unwrap()) {
+            if id.to_string().eq(&admin.unwrap_or("".to_string())) {
                 return true;
             }
         }
@@ -59,39 +80,33 @@ impl IvanConfig {
         }
     }
 
-    pub fn add_admin(&mut self, id: u64) -> Result<(), ConfyError> {
+    pub fn add_admin(&mut self, id: u64) -> Result<(), ConfigError> {
         self.admins.retain(|item| { *item != id });
         self.admins.push(id);
-        let path = get_path();
-        confy::store_path(path, self)
+        write_config(&self)
     }
-    pub fn remove_admin(&mut self, id: u64) -> Result<(), ConfyError> {
+    pub fn remove_admin(&mut self, id: u64) -> Result<(), ConfigError> {
         self.admins.retain(|item| { *item != id });
-        let path = get_path();
-        confy::store_path(path, self)
+        write_config(&self)
     }
-    pub fn add_mod(&mut self, id: u64) -> Result<(), ConfyError> {
+    pub fn add_mod(&mut self, id: u64) -> Result<(), ConfigError> {
         self.mods.retain(|item| { *item != id });
         self.mods.push(id);
-        let path = get_path();
-        confy::store_path(path, self)
+        write_config(&self)
     }
-    pub fn remove_mod(&mut self, id: u64) -> Result<(), ConfyError> {
+    pub fn remove_mod(&mut self, id: u64) -> Result<(), ConfigError> {
         self.mods.retain(|item| { *item != id });
-        let path = get_path();
-        confy::store_path(path, self)
+        write_config(&self)
     }
-    pub fn add_alias(&mut self, alias: String, mapname: String) {
+    pub fn add_alias(&mut self, alias: String, mapname: String) -> Result<(), ConfigError> {
         self.aliases.push((alias, mapname));
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
-    pub fn remove_alias(&mut self, alias: String) {
+    pub fn remove_alias(&mut self, alias: String) -> Result<(), ConfigError> {
         self.aliases.retain(|(key, value)| {
             *key.to_lowercase() != alias.to_lowercase() && *value != alias
         });
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
     pub fn resolve_alias(&self, alias: &str) -> Option<String> {
         self.aliases.iter().find(|(key, _)| {
@@ -101,17 +116,15 @@ impl IvanConfig {
         })
     }
 
-    pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) {
+    pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) -> Result<(), ConfigError> {
         self.maps.push(PoolMap { map, gamemode, alias });
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
-    pub fn remove_map(&mut self, alias: String) {
+    pub fn remove_map(&mut self, alias: String) -> Result<(), ConfigError> {
         self.maps.retain(|map| {
             map.alias != alias && map.map != alias
         });
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
     pub fn get_maps_random(&self, amount: usize) -> Result<Vec<&PoolMap>, AdminCommandError> {
         if self.maps.len() < amount {
@@ -134,26 +147,38 @@ impl IvanConfig {
         return self.channel_lock;
     }
 
-    pub fn add_channel_lock(&mut self, channel_id: u64) {
+    pub fn add_channel_lock(&mut self, channel_id: u64) -> Result<(),ConfigError> {
         self.channel_lock = Some(channel_id);
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
-    pub fn remove_channel_lock(&mut self) {
+    pub fn remove_channel_lock(&mut self) -> Result<(), ConfigError> {
         self.channel_lock = None;
-        let path = get_path();
-        confy::store_path(path, self).unwrap();
+        write_config(&self)
     }
+}
+
+
+pub fn get_config() -> Result<IvanConfig,ConfigError> {
+    let file = fs::read_to_string(get_path()).map_err(|err|{
+        ConfigError {input: err.to_string(),kind: ConfigErrorKind::ReadConfigError}
+    })?;
+    return from_str(file.as_str()).map_err(|err|{
+        ConfigError {input: err.to_string(),kind: ConfigErrorKind::DeserializeError}
+    });
+}
+
+fn write_config(config: &IvanConfig) -> Result<(),ConfigError> {
+    let values = to_string_pretty(&config).map_err(|err|{
+        ConfigError {input: err.to_string(),kind: ConfigErrorKind::SerializeError}
+    })?;
+    fs::write(get_path(), values).map_err(|err|{
+        ConfigError {input: err.to_string(),kind: ConfigErrorKind::WriteError}
+    })
 }
 
 /// `MyConfig` implements `Default`
 impl ::std::default::Default for IvanConfig {
     fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None } }
-}
-
-pub fn get_config() -> Result<IvanConfig, confy::ConfyError> {
-    let cfg: IvanConfig = confy::load_path(get_path())?;
-    Ok(cfg)
 }
 
 fn get_path() -> String {
