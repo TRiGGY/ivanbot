@@ -50,6 +50,7 @@ pub enum ConfigErrorKind {
 pub struct Players {
     pub(crate) PlayerList: Vec<Player>
 }
+
 #[derive(Deserialize)]
 pub struct Player {
     pub(crate) Username: String,
@@ -65,6 +66,9 @@ pub struct IvanConfig {
     aliases: Vec<(String, String)>,
     maps: Vec<PoolMap>,
     channel_lock: Option<u64>,
+
+    #[serde(default)]
+    skin_shuffle: bool,
 }
 
 
@@ -179,6 +183,15 @@ impl IvanConfig {
         self.channel_lock = None;
         write_config(&self)
     }
+
+    pub fn set_skin_shuffle(&mut self, value: bool) -> Result<(), ConfigError> {
+        self.skin_shuffle = value;
+        write_config(&self)
+    }
+
+    pub fn get_skin_shuffle(&self) -> bool {
+        self.skin_shuffle
+    }
 }
 
 
@@ -202,7 +215,7 @@ fn write_config(config: &IvanConfig) -> Result<(), ConfigError> {
 
 /// `MyConfig` implements `Default`
 impl ::std::default::Default for IvanConfig {
-    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None } }
+    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None, skin_shuffle: false } }
 }
 
 fn get_path() -> String {

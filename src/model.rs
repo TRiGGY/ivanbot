@@ -16,6 +16,7 @@ use serenity::http::{CacheHttp, Http};
 use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
 use crate::pavlov::PavlovCommands::SetPlayerSkin;
+use std::error::Error;
 
 const BOT_HELP: &str =
     "
@@ -42,6 +43,9 @@ impl Display for AdminCommandError {
         write!(f, "{} because of: \"{}\"", self.kind.to_string(), self.input)
     }
 }
+
+impl Error for AdminCommandError {}
+
 
 #[derive(Debug, Clone)]
 pub enum BotErrorKind {
@@ -74,7 +78,7 @@ impl Display for BotErrorKind {
     }
 }
 
-enum IvanError {
+pub enum IvanError {
     BotCommandError(AdminCommandError),
     BotPavlovError(PavlovError),
     BotConfigError(ConfigError),
@@ -165,30 +169,48 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
 
 fn handle_skin(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
     match pa(arguments, 1)? {
+        "shuffle" => handle_skin_shuffle(arguments, framework),
         "random" => {
             let random = || -> Skin {
                 Skin::get_random()
             };
             assign_skins(framework, random)
         }
-        "clown" => { assign_skins(framework, || { Skin::Clown }) }
-        "prisoner" => { assign_skins(framework, || { Skin::Prisoner }) }
-        "naked" => { assign_skins(framework, || { Skin::Naked }) }
-        "farmer" => { assign_skins(framework, || { Skin::Farmer }) }
-        "russian" => { assign_skins(framework, || { Skin::Russian }) }
-        "nato" => { assign_skins(framework, || { Skin::Nato }) }
+        "clown" => assign_skins(framework, || { Skin::Clown }),
+        "prisoner" => assign_skins(framework, || { Skin::Prisoner }),
+        "naked" => assign_skins(framework, || { Skin::Naked }),
+        "farmer" => assign_skins(framework, || { Skin::Farmer }),
+        "russian" => assign_skins(framework, || { Skin::Russian }),
+        "nato" => assign_skins(framework, || { Skin::Nato }),
         _ => {
             Err(IvanError::from(AdminCommandError { kind: BotErrorKind::InvalidArgument, input: String::from("") }))
         }
     }
 }
 
+fn handle_skin_shuffle(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
+    let argument = pa(arguments, 2)?;
+    match argument {
+        "on" | "true" => {
+            framework.config.set_skin_shuffle(true)?;
+            Ok(format!("Skin shuffle set to true"))
+        }
+        "off" | "false" => {
+            framework.config.set_skin_shuffle(false)?;
+            Ok(format!("Skin shuffle set to false"))
+        }
+        x => { Err(BotCommandError(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument })) }
+    }
+}
 
-fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin) -> Result<String, IvanError> {
+pub fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin) -> Result<String, IvanError> {
     let players_string = framework.connection.execute_command(PavlovCommands::RefreshList);
     let players_result = serde_json::from_str::<Players>(players_string.as_str());
     match players_result {
         Ok(players) => {
+            if players.PlayerList.is_empty() {
+                return Ok(format!("Could not assign skins because there are no players on the server"))
+            }
             let mut msg = String::from("\n");
             for player in players.PlayerList {
                 let skin = skin_decider();
@@ -205,6 +227,7 @@ fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin) -> 
 
 
 pub fn reply(msg: &mut Message, cache_http: &Http, message: String) -> Result<Message, AdminCommandError> {
+    println!("{}", &message);
     msg.reply(cache_http, message).map_err(|_| {
         AdminCommandError { input: "Couldn't send reply".to_string(), kind: BotErrorKind::CouldNotReply }
     })

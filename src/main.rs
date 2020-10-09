@@ -6,7 +6,6 @@ mod model;
 mod config;
 
 use crate::discord::run_discord;
-
 mod discord;
 mod connect;
 mod pavlov;
