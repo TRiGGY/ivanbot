@@ -7,29 +7,53 @@ use serde::export::Formatter;
 use core::{fmt, result};
 use crate::model::{AdminCommandError, BotErrorKind};
 use serde::{Deserialize, Serialize};
-use std::{fs };
+use std::{fs};
 use serde_json::{to_string_pretty, from_str};
-use std::fmt::Error;
+use std::fmt::{Error};
+use dirs::home_dir;
 
-const IVAN_CONFIG: &str = "~/ivan.json";
+const IVAN_CONFIG: &str = "ivan.json";
 
 #[derive(Debug, Clone)]
-pub struct ConfigError{
+pub struct ConfigError {
     pub(crate) input: String,
     pub(crate) kind: ConfigErrorKind,
 }
 
 impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut Formatter<'_>) ->  result::Result<(), Error> {
-        write!(f,"Error: {} because of: {}",self.kind,self.input)
+    fn fmt(&self, f: &mut Formatter<'_>) -> result::Result<(), Error> {
+        write!(f, "Error: {} because of: {}", self.kind, self.input)
     }
 }
-#[derive(Debug, Clone,Display)]
+
+#[derive(Debug, Clone, Display)]
 pub enum ConfigErrorKind {
     ReadConfigError,
     SerializeError,
     DeserializeError,
-    WriteError
+    WriteError,
+}
+
+
+// impl Display for ConfigErrorKind {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+//         write!(f, "{}", match self {
+//             ConfigErrorKind::DeserializeError => { "Deserialize Error" }
+//             ConfigErrorKind::ReadConfigError => { "Read Config Error" }
+//             ConfigErrorKind::SerializeError => { "Serialize Error" }
+//             ConfigErrorKind::WriteError => { "Write Config Error" }
+//         })
+//     }
+// }
+
+#[derive(Deserialize)]
+pub struct Players {
+    pub(crate) PlayerList: Vec<Player>
+}
+#[derive(Deserialize)]
+pub struct Player {
+    pub(crate) Username: String,
+    pub(crate) UniqueId: String,
 }
 
 
@@ -147,7 +171,7 @@ impl IvanConfig {
         return self.channel_lock;
     }
 
-    pub fn add_channel_lock(&mut self, channel_id: u64) -> Result<(),ConfigError> {
+    pub fn add_channel_lock(&mut self, channel_id: u64) -> Result<(), ConfigError> {
         self.channel_lock = Some(channel_id);
         write_config(&self)
     }
@@ -158,21 +182,21 @@ impl IvanConfig {
 }
 
 
-pub fn get_config() -> Result<IvanConfig,ConfigError> {
-    let file = fs::read_to_string(get_path()).map_err(|err|{
-        ConfigError {input: err.to_string(),kind: ConfigErrorKind::ReadConfigError}
+pub fn get_config() -> Result<IvanConfig, ConfigError> {
+    let file = fs::read_to_string(get_path()).map_err(|err| {
+        ConfigError { input: err.to_string(), kind: ConfigErrorKind::ReadConfigError }
     })?;
-    return from_str(file.as_str()).map_err(|err|{
-        ConfigError {input: err.to_string(),kind: ConfigErrorKind::DeserializeError}
+    return from_str(file.as_str()).map_err(|err| {
+        ConfigError { input: err.to_string(), kind: ConfigErrorKind::DeserializeError }
     });
 }
 
-fn write_config(config: &IvanConfig) -> Result<(),ConfigError> {
-    let values = to_string_pretty(&config).map_err(|err|{
-        ConfigError {input: err.to_string(),kind: ConfigErrorKind::SerializeError}
+fn write_config(config: &IvanConfig) -> Result<(), ConfigError> {
+    let values = to_string_pretty(&config).map_err(|err| {
+        ConfigError { input: err.to_string(), kind: ConfigErrorKind::SerializeError }
     })?;
-    fs::write(get_path(), values).map_err(|err|{
-        ConfigError {input: err.to_string(),kind: ConfigErrorKind::WriteError}
+    fs::write(get_path(), values).map_err(|err| {
+        ConfigError { input: err.to_string(), kind: ConfigErrorKind::WriteError }
     })
 }
 
@@ -182,5 +206,14 @@ impl ::std::default::Default for IvanConfig {
 }
 
 fn get_path() -> String {
-    return var("CONFIG_PATH").unwrap_or_else(|_| { String::from(IVAN_CONFIG) });
+    return var("CONFIG_PATH").unwrap_or_else(|_| {
+        let dir = home_dir();
+        match dir {
+            None => { IVAN_CONFIG.to_string() }
+            Some(mut path) => {
+                path.push(IVAN_CONFIG);
+                String::from(path.as_path().to_str().unwrap())
+            }
+        }
+    });
 }

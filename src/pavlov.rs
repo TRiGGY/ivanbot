@@ -1,4 +1,4 @@
-use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo,  ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam};
+use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam};
 use std::fmt::{Display, Formatter};
 use core::fmt;
 use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM};
@@ -6,7 +6,9 @@ use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 use crate::config::IvanConfig;
-use serde::{Serialize, Deserialize  };
+use serde::{Serialize, Deserialize};
+use serenity::static_assertions::_core::str::FromStr;
+use rand::seq::SliceRandom;
 
 pub enum PavlovCommands {
     Help,
@@ -30,6 +32,7 @@ pub enum PavlovCommands {
     SetPlayerSkin(SteamId, Skin),
     SetLimitedAmmoType(u32),
 }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum GameMode {
     SND,
@@ -39,9 +42,10 @@ pub enum GameMode {
     GUN,
 }
 
-pub type SteamId = u32;
+pub type SteamId = u64;
 pub type TeamId = u32;
 
+#[derive(Copy,Clone)]
 pub enum Skin {
     Clown,
     Prisoner,
@@ -51,44 +55,57 @@ pub enum Skin {
     Nato,
 }
 
+const SKINS: [Skin; 6] = [Skin::Clown,
+    Skin::Prisoner,
+    Skin::Naked,
+    Skin::Farmer,
+    Skin::Russian,
+    Skin::Nato];
+
+impl Skin {
+    pub fn get_random() -> Skin {
+        SKINS.choose(&mut rand::thread_rng()).unwrap().clone()
+    }
+}
+
 impl PavlovCommands {
     pub fn parse_from_arguments(arguments: &Vec<&str>, config: &IvanConfig) -> Result<PavlovCommands, PavlovError> {
         let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
         let command = match first_argument.to_lowercase().as_str() {
             "help" => Help,
-            "ban" => Ban(parse_u32(pa(arguments, 1)?)?),
-            "kick" => Kick(parse_u32(pa(arguments, 1)?)?),
-            "unban" => Unban(parse_u32(pa(arguments, 1)?)?),
+            "ban" => Ban(parse_number(pa(arguments, 1)?)?),
+            "kick" => Kick(parse_number(pa(arguments, 1)?)?),
+            "unban" => Unban(parse_number(pa(arguments, 1)?)?),
             "rotatemap" => RotateMap,
             "switchmap" => SwitchMap {
-                map: parse_map(pa(arguments,1)?, config)?,
-                gamemode: parse_game_mode(pa(arguments,2)?)?,
+                map: parse_map(pa(arguments, 1)?, config)?,
+                gamemode: parse_game_mode(pa(arguments, 2)?)?,
             },
-            "switchteam" => SwitchTeam(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
-            "giveitem" => GiveItem(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
-            "givecash" => GiveCash(parse_u32(pa(arguments, 1)?)?, parse_uint(pa(arguments, 2)?)?),
-            "giveteamcash" => GiveTeamCash(parse_team(pa(arguments,1)?)?, parse_uint(pa(arguments,2)?)?),
-            "inspectplayer" => InspectPlayer(parse_u32(pa(arguments, 1)?)?),
+            "switchteam" => SwitchTeam(parse_number(pa(arguments, 1)?)?, parse_team(pa(arguments, 2)?)?),
+            "giveitem" => GiveItem(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
+            "givecash" => GiveCash(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
+            "giveteamcash" => GiveTeamCash(parse_team(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
+            "inspectplayer" => InspectPlayer(parse_number(pa(arguments, 1)?)?),
             "refreshlist" => RefreshList,
             "serverinfo" => ServerInfo,
             //"disconnect" => Disconnect,
             "resetsnd" => ResetSND,
-            "setplayerskin" => SetPlayerSkin(parse_u32(pa(arguments, 1)?)?, parse_skin(pa(arguments, 2)?)?),
-            "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa(arguments,1)?)?),
+            "setplayerskin" => SetPlayerSkin(parse_number(pa(arguments, 1)?)?, parse_skin(pa(arguments, 2)?)?),
+            "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa(arguments, 1)?)?),
             x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
         };
         return Ok(command);
     }
 }
 
-pub fn pa<'a>(arguments: &Vec<&'a str>,index : usize) -> Result<&'a str, PavlovError> {
+pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, PavlovError> {
     (arguments.get(index)).ok_or_else(|| {
         PavlovError { input: "".to_string(), kind: MissingArgument }
     }).map(|value| { *value })
 }
 
-pub fn parse_u32(value: &str) -> Result<u32, PavlovError> {
-    value.parse::<u32>().map_err(|_error| {
+pub fn parse_number<T: FromStr>(value: &str) -> Result<T, PavlovError> {
+    value.parse::<T>().map_err(|_error| {
         PavlovError { input: value.to_string(), kind: InvalidArgument }
     })
 }
@@ -107,7 +124,7 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
         let capture = steam_workshop_regex.captures_iter(map).next().unwrap();
         let first = capture.get(1);
         if first.is_some() {
-            Ok(format!("UGC{}", parse_uint(first.unwrap().as_str())?))
+            Ok(format!("UGC{}", parse_number::<u32>(first.unwrap().as_str())?))
         } else {
             Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
         }
@@ -119,7 +136,7 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
 }
 
 fn parse_team(value: &str) -> Result<u32, PavlovError> {
-    parse_u32(value)
+    parse_number(value)
 }
 
 fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
@@ -136,11 +153,7 @@ fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
 }
 
 fn parse_ammo(value: &str) -> Result<u32, PavlovError> {
-    parse_u32(value)
-}
-
-fn parse_uint(value: &str) -> Result<u32, PavlovError> {
-    parse_u32(value)
+    parse_number(value)
 }
 
 pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
@@ -222,6 +235,44 @@ pub enum ErrorKind {
     InvalidConnectionAddress,
     MissingArgument,
     InvalidMap,
+    InvalidPlayerList
 }
 
+impl Display for PavlovError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.kind, self.input)
+    }
+}
+
+impl ErrorKind {
+    pub fn is_fatal(&self) -> bool {
+        match self {
+            ErrorKind::InvalidArgument => false,
+            ErrorKind::InvalidCommand => false,
+            ErrorKind::ConnectionError => true,
+            ErrorKind::Authentication => true,
+            ErrorKind::InvalidConnectionAddress => true,
+            ErrorKind::MissingArgument => false,
+            ErrorKind::InvalidMap => false,
+            ErrorKind::InvalidPlayerList =>false
+        }
+    }
+}
+
+impl Display for ErrorKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}",
+               match self {
+                   ErrorKind::InvalidArgument => "Invalid argument",
+                   ErrorKind::InvalidCommand => "Invalid command ",
+                   ErrorKind::ConnectionError => "Connection error",
+                   ErrorKind::Authentication => "Authentication error with password: ",
+                   ErrorKind::InvalidConnectionAddress => "Connection error connecting",
+                   ErrorKind::MissingArgument => "Missing argument",
+                   ErrorKind::InvalidMap => "Invalid map name",
+                   ErrorKind::InvalidPlayerList =>"Invalid player format"
+               }
+        )
+    }
+}
 

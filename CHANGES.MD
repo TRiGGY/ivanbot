@@ -6,3 +6,7 @@ Added channel [lock,unlock]. Lock enables the bot to only listen to commands in 
 
 # 0.3.0
 Changed configuration format to JSON breaking all previous config files. (They will be auto-recreated)
+
+# 0.4.0
+Fixed commands that didn't parse 64 bit steam ID's correctly. 
+Added -skin feature that allows you to assign a skin to everyone.

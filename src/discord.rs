@@ -2,21 +2,17 @@ use serenity::client::{Client, EventHandler};
 use serenity::model::channel::{Message};
 use serenity::prelude::{Context};
 use serenity::framework::Framework;
-use crate::connect::{maintain_connection};
-use crate::pavlov::{PavlovCommands};
 use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
 use threadpool::ThreadPool;
-
-
-use std::sync::mpsc::{Sender, Receiver};
 use crate::config::{get_config, IvanConfig, ConfigError};
 use crate::model::{handle_command};
 use crate::voting::Vote;
 use std::sync::{Mutex, Arc};
 use serenity::CacheAndHttp;
 use crate::permissions::PermissionLevel;
+use crate::connect::{Connection,  create_connection_unwrap};
 
 
 struct Handler;
@@ -43,8 +39,7 @@ impl Framework for ConcurrentFramework {
 }
 
 pub struct CustomFramework {
-    pub sender: Sender<PavlovCommands>,
-    pub receiver: Receiver<String>,
+    pub connection: Connection,
     pub config: IvanConfig,
     pub vote: Option<Vote>,
 }
@@ -55,11 +50,10 @@ pub fn run_discord() {
     let mut client = Client::new(&token, Handler {}).unwrap();
     let login = get_login();
     let config = recover_error(get_config());
-    let (sender, receiver) = maintain_connection(login);
+    let connection = create_connection_unwrap(login);
     let arc = Arc::new(Mutex::from(CustomFramework {
-        sender,
-        receiver,
-        config: config,
+        connection,
+        config,
         vote: None,
     }));
 

@@ -1,19 +1,21 @@
 use serenity::client::Context;
 use serenity::model::channel::Message;
-use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, parse_u32};
-use crate::connect::{get_error_pavlov, get_error_botcommand};
+use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, parse_number, Skin, ErrorKind};
 use regex::Regex;
 use crate::parsing::{pa};
 use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed, user_allowed};
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::model::IvanError::{BotPavlovError, BotCommandError, BotConfigError};
 use crate::output::output;
-use crate::config::{IvanConfig, ConfigError};
+use crate::config::{IvanConfig, ConfigError, Players};
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found, MAX_VOTE_MAPS};
 use std::ops::Add;
 use serde::export::fmt::Display;
 use serenity::http::{CacheHttp, Http};
+use serenity::static_assertions::_core::fmt::Formatter;
+use core::fmt;
+use crate::pavlov::PavlovCommands::SetPlayerSkin;
 
 const BOT_HELP: &str =
     "
@@ -23,7 +25,9 @@ const BOT_HELP: &str =
 -mod [add,remove] discord_id_64 #Add moderator
 -map add {url/map} gamemode alias #Add map to pool
 -map vote start (X) #Start map vote with X choices, default 3
+-map vote stop
 -map list #show map pool
+-skin {random, clown, prisoner, naked, farmer, russian, nato}
 -channel [lock,unlock] #Locks/Unlocks the channel. The bot will only respond in this channel or DM's from admins
 ";
 
@@ -31,6 +35,12 @@ const BOT_HELP: &str =
 pub struct AdminCommandError {
     pub(crate) input: String,
     pub(crate) kind: BotErrorKind,
+}
+
+impl Display for AdminCommandError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} because of: \"{}\"", self.kind.to_string(), self.input)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -47,10 +57,37 @@ pub enum BotErrorKind {
     InvalidVoteAmount,
 }
 
+impl Display for BotErrorKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            BotErrorKind::InvalidArgument => "Invalid argument",
+            BotErrorKind::InvalidCommand => "Invalid command try -bothelp (for bot commands) and -help (for pavlov commands)",
+            BotErrorKind::MissingArgument => "Missing argument {}",
+            BotErrorKind::ErrorConfig => "Missing argument {}",
+            BotErrorKind::InvalidMapAlias => "Invalid map Alias",
+            BotErrorKind::VoteInProgress => "There's already a vote in progress",
+            BotErrorKind::VoteNotInProgress => "There's no vote in progress",
+            BotErrorKind::CouldNotReply => "Could not reply to the channel",
+            BotErrorKind::InvalidGameMode => "Invalid game mode valid valid [DM,TDM,GUN,SND]",
+            BotErrorKind::InvalidVoteAmount => "Can't start a vote of this size"
+        })
+    }
+}
+
 enum IvanError {
     BotCommandError(AdminCommandError),
     BotPavlovError(PavlovError),
     BotConfigError(ConfigError),
+}
+
+impl Display for IvanError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", match self {
+            BotCommandError(admin) => admin.to_string(),
+            BotPavlovError(pavlov) => pavlov.to_string(),
+            BotConfigError(config) => config.to_string()
+        })
+    }
 }
 
 impl From<PavlovError> for IvanError {
@@ -77,13 +114,11 @@ pub fn handle_command(framework: &mut CustomFramework, mut ctx: Context, mut msg
         Ok(_) => {}
         Err(error) => {
             match error {
-                IvanError::BotCommandError(admin_error) => {
-                    let bot_error = get_error_botcommand(&admin_error);
-                    output(&mut ctx, &mut msg, bot_error)
+                BotCommandError(admin_error) => {
+                    output(&mut ctx, &mut msg, admin_error.to_string())
                 }
-                IvanError::BotPavlovError(pavlov_error) => {
-                    let (error_message, _) = get_error_pavlov(&pavlov_error);
-                    output(&mut ctx, &mut msg, error_message);
+                BotPavlovError(pavlov_error) => {
+                    output(&mut ctx, &mut msg, pavlov_error.to_string());
                 }
                 BotConfigError(config_error) => {
                     output(&mut ctx, &mut msg, config_error.to_string())
@@ -117,15 +152,57 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
             let channel = handle_channel(arguments, msg, &mut framework.config)?;
             output(ctx, msg, channel);
         }
+        "skin" => output(ctx, msg, handle_skin(arguments, framework)?),
         _ => {
             let command = PavlovCommands::parse_from_arguments(arguments, &framework.config)?;
             println!("{}", &command.to_string());
-            framework.sender.send(command).unwrap();
-            output(ctx, msg, framework.receiver.recv().unwrap());
+            let response = framework.connection.execute_command(command);
+            output(ctx, msg, response);
         }
     };
     Ok(())
 }
+
+fn handle_skin(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
+    match pa(arguments, 1)? {
+        "random" => {
+            let random = || -> Skin {
+                Skin::get_random()
+            };
+            assign_skins(framework, random)
+        }
+        "clown" => { assign_skins(framework, || { Skin::Clown }) }
+        "prisoner" => { assign_skins(framework, || { Skin::Prisoner }) }
+        "naked" => { assign_skins(framework, || { Skin::Naked }) }
+        "farmer" => { assign_skins(framework, || { Skin::Farmer }) }
+        "russian" => { assign_skins(framework, || { Skin::Russian }) }
+        "nato" => { assign_skins(framework, || { Skin::Nato }) }
+        _ => {
+            Err(IvanError::from(AdminCommandError { kind: BotErrorKind::InvalidArgument, input: String::from("") }))
+        }
+    }
+}
+
+
+fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin) -> Result<String, IvanError> {
+    let players_string = framework.connection.execute_command(PavlovCommands::RefreshList);
+    let players_result = serde_json::from_str::<Players>(players_string.as_str());
+    match players_result {
+        Ok(players) => {
+            let mut msg = String::from("\n");
+            for player in players.PlayerList {
+                let skin = skin_decider();
+                msg = msg.add(format!("Player: \"{}\" gets the skin: \"{}\"\n", player.Username, &skin).as_str());
+                println!("{}", framework.connection.execute_command(SetPlayerSkin(parse_number(player.UniqueId.as_str())?, skin)))
+            }
+            Ok(msg)
+        }
+        Err(error) => {
+            Err(IvanError::from(PavlovError { input: error.to_string(), kind: ErrorKind::InvalidPlayerList }))
+        }
+    }
+}
+
 
 pub fn reply(msg: &mut Message, cache_http: &Http, message: String) -> Result<Message, AdminCommandError> {
     msg.reply(cache_http, message).map_err(|_| {
@@ -155,7 +232,7 @@ fn handle_channel(arguments: &Vec<&str>, msg: &mut Message, config: &mut IvanCon
             config.remove_channel_lock()?;
             Ok("removed channel lock".to_string())
         }
-        x => Err(IvanError::BotCommandError(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument }))
+        x => Err(BotCommandError(AdminCommandError { input: x.to_string(), kind: BotErrorKind::InvalidArgument }))
     }
 }
 
@@ -167,7 +244,7 @@ fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut 
         "remove" => map_remove(arguments, framework, msg, ctx),
         "vote" => handle_vote(arguments, framework, msg, ctx, concurrent_framework),
         "list" => handle_map_pool(framework, msg, ctx),
-        command => Err(IvanError::BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }))
+        command => Err(BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }))
     }
 }
 
@@ -187,18 +264,18 @@ fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut
     let second = pa(arguments, 2)?;
     let choices = pa(arguments, 3);
     let amount = match choices {
-        Ok(value) => parse_u32(value).map_err(|err| {
+        Ok(value) => parse_number(value).map_err(|err| {
             AdminCommandError { input: err.input, kind: BotErrorKind::InvalidArgument }
         })?,
         Err(_) => MAX_VOTE_MAPS
     };
     if amount < 2 {
-        return Err(IvanError::BotCommandError(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount }));
+        return Err(BotCommandError(AdminCommandError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount }));
     }
     match second {
         "start" => Ok(handle_vote_start(framework, msg, ctx, concurrent_framework, amount as usize)?),
-        "finish" => Ok(handle_vote_finish(framework, msg, &ctx.http)?),
-        command => { Err(IvanError::BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand })) }
+        "stop" => Ok(handle_vote_finish(framework, msg, &ctx.http)?),
+        command => { Err(BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand })) }
     }
 }
 

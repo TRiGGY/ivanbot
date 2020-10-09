@@ -21,7 +21,7 @@ const HUNDRED: char = '💯';
 const MONEY: char = '💸';
 const CHAMPAGNE: char = '🍾';
 const SMIRK: char = '😏';
-
+const HAND: char = '👌';
 
 pub const MAX_VOTE_MAPS: u32 = 4;
 
@@ -84,7 +84,7 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
             vote.message_id = reply.id;
             framework.vote = Some(vote);
 
-            let framework_clone = concurrent_framework.data.clone();
+            let framework_clone= concurrent_framework.data.clone();
             let cache_clone = concurrent_framework.cache.clone();
             create_thread(framework_clone, cache_clone);
             Ok(())
@@ -123,9 +123,8 @@ pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ht
             let mut message = http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
             let winner = determine_winner(vote, &mut message);
             reply(msg, http, format!("The winner is: {}", winner))?;
-            framework.sender.send(PavlovCommands::SwitchMap { map: winner.map.clone(), gamemode: winner.gamemode.clone() }).unwrap();
-            let pavlov = framework.receiver.recv().unwrap();
-            reply(msg, http, pavlov)?;
+            let response = framework.connection.execute_command(PavlovCommands::SwitchMap { map: winner.map.clone(), gamemode: winner.gamemode.clone() });
+            reply(msg, http, response)?;
             framework.vote = None;
             Ok(())
         }
@@ -170,7 +169,7 @@ fn get_random_emojis(amount: usize) -> Result<Vec<String>, AdminCommandError> {
     if amount > 6 {
         return Err(AdminCommandError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)", amount) });
     }
-    let emojis = vec!(HUNDRED.to_string(), KNIFE.to_string(), SALT.to_string(), MONEY.to_string(), CHAMPAGNE.to_string(), SMIRK.to_string());
+    let emojis = vec!(HUNDRED.to_string(), KNIFE.to_string(), SALT.to_string(), MONEY.to_string(), CHAMPAGNE.to_string(), SMIRK.to_string(),HAND.to_string());
     let mut chosen = emojis.iter().choose_multiple(&mut rand::thread_rng(), amount);
     chosen.shuffle(&mut rand::thread_rng());
     Ok(chosen.iter().map(|value| { (*value).clone() }).collect())

@@ -8,66 +8,52 @@ use crate::pavlov::{PavlovError, ErrorKind, PavlovCommands};
 use crate::pavlov::ErrorKind::ConnectionError;
 use std::{io};
 use crate::credentials::LoginData;
-use std::thread;
-use std::sync::mpsc::{Receiver, Sender, channel};
-use crate::model::{BotErrorKind, AdminCommandError};
 
 const AUTHENTICATED: &str = "Authenticated=1";
 
 
-pub fn maintain_connection(login_data: LoginData) -> (Sender<PavlovCommands>, Receiver<String>) {
-    let input: (Sender<PavlovCommands>, Receiver<PavlovCommands>) = channel();
-    let output: (Sender<String>, Receiver<String>) = channel();
-    let (tx, rx) = input;
-    let (tx_string, rx_string) = output;
-    thread::spawn(move || {
-        connection_loop(rx, login_data, tx_string);
-    });
-    (tx, rx_string)
+pub struct Connection {
+    login_data: LoginData,
+    pavlov_connection: PavlovConnection,
 }
 
-fn connection_loop<'a, 'b>(rx: Receiver<PavlovCommands>, login_data: LoginData, mut tx_string: Sender<String>) {
-    let mut connection = get_connection(&login_data);
-    loop {
-        let input = rx.recv().unwrap();
-        connection = match connection {
-            Err(err) => {
-                let (error, _) = get_error_pavlov(&err);
-                println!("{}", error);
-                tx_string.send(error).unwrap();
-                Err(err)
-            }
-            Ok(conn) => {
-                Ok(execute_command(input, conn, &mut tx_string, &login_data, false))
+impl Connection {
+    pub fn execute_command(&mut self, input: PavlovCommands) -> String {
+        let result = self.pavlov_connection.sent_command(input.to_string());
+        match result {
+            Ok(result) => return result,
+            Err(error) => {
+                if error.kind.is_fatal() {
+                    println!("{}", error.to_string());
+                } else {
+                    return error.to_string();
+                }
             }
         }
+        let new_connection = get_connection(&self.login_data);
+        match new_connection {
+            Ok(connection) => {
+                self.pavlov_connection =  connection;
+            }
+            Err(error) => {
+                return error.to_string();
+            }
+        }
+        let result = self.pavlov_connection.sent_command(input.to_string());
+        return result.unwrap_or_else(|err| { err.to_string() });
     }
 }
 
-fn execute_command(input: PavlovCommands, mut connection: PavlovConnection, send: &mut Sender<String>, login_data: &LoginData, on_retry: bool) -> PavlovConnection {
-    let response = connection.sent_command(input.to_string());
-    return match response {
-        Err(err) => {
-            let (error_message, should_restart) = get_error_pavlov(&err);
-            if should_restart && !on_retry {
-                let new_connection = get_connection(login_data);
-                if let Ok(conn) = new_connection {
-                    return execute_command(input, conn, send, login_data, true);
-                }
-            }
-            send.send(error_message).unwrap();
-            connection
-        }
-        Ok(value) => {
-            send.send(value).unwrap();
-            connection
-        }
-    };
-}
-
-
 fn get_connection(login_data: &LoginData) -> Result<PavlovConnection, PavlovError> {
     return pavlov_connect(&login_data.ip, &login_data.password);
+}
+
+pub fn create_connection_unwrap<'a>(login_data: LoginData) -> Connection {
+    let pavlov_connection = get_connection(&login_data).unwrap();
+    Connection {
+        login_data,
+        pavlov_connection,
+    }
 }
 
 
@@ -76,7 +62,7 @@ fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnect
         PavlovError { input: address.clone(), kind: ErrorKind::InvalidConnectionAddress }
     })?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|_err| {
-        PavlovError { input: pass.clone(), kind: ConnectionError }
+        PavlovError { input: address.clone(), kind: ConnectionError }
     })?;
     let mut buf_reader = BufReader::new(stream.try_clone().map_err(|_err| {
         PavlovError { input: "Error reading".to_string(), kind: ConnectionError }
@@ -164,29 +150,5 @@ impl PavlovConnection {
     }
 }
 
-pub fn get_error_pavlov(error: &PavlovError) -> (String, bool) {
-    match &error.kind {
-        ErrorKind::InvalidArgument => (format!("Invalid argument \"{}\"", error.input), false),
-        ErrorKind::InvalidCommand => (format!("Invalid command \"{}\"", error.input), false),
-        ErrorKind::ConnectionError => (format!("Connection error: {}", error.input), true),
-        ErrorKind::Authentication => (format!("Authentication error with password: {}", error.input), true),
-        ErrorKind::InvalidConnectionAddress => (format!("Connection error connecting to \"{}\", make sure this is a valid address like google.com:9293", error.input), true),
-        ErrorKind::MissingArgument => (format!("Missing argument {}", error.input), false),
-        ErrorKind::InvalidMap => (format!("Invalid map name {}", error.input), false),
-    }
-}
 
-pub fn get_error_botcommand(error: &AdminCommandError) -> String {
-    match &error.kind {
-        BotErrorKind::InvalidArgument => format!("Invalid argument \"{}\"", error.input),
-        BotErrorKind::InvalidCommand => format!("Invalid command \"{}\" try -bothelp (for bot commands) and -help (for pavlov commands)", error.input),
-        BotErrorKind::MissingArgument => format!("Missing argument {}", error.input),
-        BotErrorKind::ErrorConfig => format!("Missing argument {}", error.input),
-        BotErrorKind::InvalidMapAlias => format!("Invalid map Alias \"{}\"",error.input),
-        BotErrorKind::VoteInProgress => format!("There's already a vote in progress: {}",error.input),
-        BotErrorKind::VoteNotInProgress => format!("There's no vote in progress: {}",error.input),
-        BotErrorKind::CouldNotReply => format!("Could not reply to the channel"),
-        BotErrorKind::InvalidGameMode => format!("Invalid game mode valid \"{}\" valid [DM,TDM,GUN,SND]",error.input),
-        BotErrorKind::InvalidVoteAmount => format!("Can't start a vote of this size because: {}",error.input)
-    }
-}
+
