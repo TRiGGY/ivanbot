@@ -11,14 +11,18 @@ IvanBot is a discord bot that allows control of a Pavlov game server through tex
 * Map voting from a pre-configured pool (-map vote start/map vote finish,or wait 30 sec for the vote to end)
 * Bot manage (non RCON) commands
     * **admin [add,remove] discord_id_64**          #Add/remove admin users
+    * **mod [add,remove] discord_id_64**            #Add/remove moderator users
     * **alias [add,remove] {url/map} alias**        #Create a map alias
     * **alias list**                                #Show all aliases
     * **bothelp**                                   #Help command
     * **mod [add,remove] discord_id_64**            #Add moderator
     * **map add {url/map} gamemode alias**          #Add map to pool
     * **map vote start (X)** #Start map vote with X (optional) choices, default 3
+    * **map vote stop** #Conclude the map vote and switch map
     * **map list**
-
+    * **skin {random, clown, prisoner, naked, farmer, russian, nato}** #Change all current players to either a random skin or a specific skin
+    * **skin shuffle {true/false}** #When enabled will execute "skin random" 90 seconds after a vote is completed
+  
 # Installation 
 First you'll need to gather some things:
 1. The IP+port ("127.0.0.1:9000") of your running Pavlov server. Please note it is **NOT RECOMMENDED** to expose the Pavlov RCON port to the internet. It uses an insecure login mechanism and could potentially be a security risk. 
