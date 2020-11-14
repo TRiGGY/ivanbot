@@ -17,19 +17,23 @@ use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
 use crate::pavlov::PavlovCommands::SetPlayerSkin;
 use std::error::Error;
+use std::time::Duration;
+use std::thread::sleep;
 
 const BOT_HELP: &str =
     "
 -admin [add,remove] discord_id_64 #Add/remove admin users
+-mod [add,remove] discord_id_64 #Add/remove moderator users
 -alias [add,remove] {url/map} alias #Create a map alias
+-alias list #Show all aliases
 -bothelp #Help command
 -mod [add,remove] discord_id_64 #Add moderator
 -map add {url/map} gamemode alias #Add map to pool
--map vote start (X) #Start map vote with X choices, default 3
--map vote stop
--map list #show map pool
--skin {random, clown, prisoner, naked, farmer, russian, nato}
--channel [lock,unlock] #Locks/Unlocks the channel. The bot will only respond in this channel or DM's from admins
+-map vote start (X) #Start map vote with X (optional) choices, default 3
+-map vote stop #Conclude the map vote and switch map
+-map list
+-skin {random, clown, prisoner, naked, farmer, russian, nato} #Change all current players to either a random skin or a specific skin
+-skin shuffle {true/false} #When enabled will execute \"skin random\" 90 seconds after a vote is completed
 ";
 
 #[derive(Debug, Clone)]
@@ -215,7 +219,8 @@ pub fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin)
             for player in players.PlayerList {
                 let skin = skin_decider();
                 msg = msg.add(format!("Player: \"{}\" gets the skin: \"{}\"\n", player.Username, &skin).as_str());
-                println!("{}", framework.connection.execute_command(SetPlayerSkin(parse_number(player.UniqueId.as_str())?, skin)))
+                println!("{}", framework.connection.execute_command(SetPlayerSkin(parse_number(player.UniqueId.as_str())?, skin)));
+                sleep(Duration::from_secs(1));
             }
             Ok(msg)
         }

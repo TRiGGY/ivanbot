@@ -10,3 +10,6 @@ Changed configuration format to JSON breaking all previous config files. (They w
 # 0.4.0
 Fixed commands that didn't parse 64 bit steam ID's correctly. 
 Added -skin feature that allows you to assign a skin to everyone.
+
+#0.5.0
+Added delay between skin changes to prevent crashes.
