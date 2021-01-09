@@ -11,11 +11,13 @@ use crate::pavlov::{PavlovError, PavlovCommands, GameMode, Skin};
 use rand::seq::{IteratorRandom, SliceRandom};
 use serenity::http::{CacheHttp, Http};
 use serenity::{CacheAndHttp};
-use std::sync::{Arc, Mutex, PoisonError, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
-use std::time::{Duration, SystemTime, Instant};
-use serenity::http::routing::RouteInfo::EditMessage;
+use std::time::{Duration,  Instant};
 use std::error::Error;
+use crate::config::{ GunMode};
+use crate::pavlov::GameMode::WW2GUN;
+use crate::config::GunMode::Random;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -76,7 +78,7 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
                     id: emoji.to_string(),
                     map: poolmap.map.clone(),
                     alias: poolmap.alias.clone(),
-                    gamemode: poolmap.gamemode.clone(),
+                    gamemode: handle_gunmode(poolmap.gamemode.clone(), framework.config.get_gun_mode()),
                 }
             }).collect();
             let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id, countdown: 30 };
@@ -97,18 +99,28 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
     }
 }
 
+fn handle_gunmode(gamemode: GameMode, gun_mode: GunMode) -> GameMode {
+    if gamemode == GameMode::GUN && gun_mode == GunMode::WW2{
+        WW2GUN
+    } else if gamemode == GameMode::GUN && gun_mode == GunMode::Random {
+        vec![GameMode::GUN, GameMode::WW2GUN].choose(&mut rand::thread_rng()).unwrap().clone()
+    } else {
+        gamemode.clone()
+    }
+}
+
 fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHttp>) {
     std::thread::spawn(move || {
         wait_until_ready(framework_arc.clone(), &cache).unwrap_or_else(|error| {
             println!("waiting for vote failded because: {}", error);
             return;
         });
-        let (mut msg,skin_shuffle) = match framework_arc.lock() {
+        let (mut msg, skin_shuffle) = match framework_arc.lock() {
             Ok(mut value) => {
                 if let Some(vote) = &value.vote {
                     let mut message = cache.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
                     handle_vote_finish(&mut value, &mut message, &cache.http).unwrap();
-                    (message,value.config.get_skin_shuffle())
+                    (message, value.config.get_skin_shuffle())
                 } else {
                     return;
                 }
@@ -165,13 +177,13 @@ fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<C
                 Some(vote) => {
                     vote.countdown = time_left.as_secs();
                     let mut message = cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0)?;
-                    message.edit(cache_clone, |m| { m.content(format!("{}", vote)) });
+                    message.edit(cache_clone, |m| { m.content(format!("{}", vote)) })?;
                     Ok(())
                 }
                 None => { Err(Box::new(AdminCommandError { kind: BotErrorKind::VoteNotInProgress, input: "".to_string() })) }
             }
         }
-        Err(err) => {
+        Err(_) => {
             println!("could not update vote, poison error");
             Ok(())
         }

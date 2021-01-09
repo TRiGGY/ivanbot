@@ -89,9 +89,11 @@ pub fn mod_allowed(argument: String) -> bool {
         "rotatemap" |
         "alias" |
         "map" |
+        "maplist" |
         "switchteam" |
         "giveitem" |
         "givecash" |
+        "setCash" |
         "resetsnd" |
         "setplayerskin" |
         "setlimitedammotype"
@@ -102,7 +104,7 @@ pub fn mod_allowed(argument: String) -> bool {
 
 pub fn user_allowed(argument: String) -> bool {
     match argument.as_str() {
-        "inspectplayer" | "serverinfo" | "refreshlist" | "bothelp" => true,
+        "inspectplayer" | "serverinfo" | "refreshlist" | "bothelp"| "maplist" => true,
         _ => false
     }
 }

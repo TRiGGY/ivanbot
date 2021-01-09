@@ -69,6 +69,22 @@ pub struct IvanConfig {
 
     #[serde(default)]
     skin_shuffle: bool,
+
+    #[serde(default)]
+    gun_mode : GunMode,
+}
+
+#[derive(Serialize,Deserialize,Clone,Copy,Display,Eq, PartialEq)]
+pub enum GunMode {
+    Modern,
+    WW2,
+    Random
+}
+
+impl Default for GunMode {
+    fn default() -> GunMode {
+        GunMode::Modern
+    }
 }
 
 
@@ -192,6 +208,15 @@ impl IvanConfig {
     pub fn get_skin_shuffle(&self) -> bool {
         self.skin_shuffle
     }
+
+    pub fn set_gun_mode(&mut self, value : GunMode) -> Result<(), ConfigError> {
+        self.gun_mode = value;
+        write_config(&self)
+    }
+
+    pub fn get_gun_mode(&self) -> GunMode {
+        self.gun_mode
+    }
 }
 
 
@@ -215,7 +240,7 @@ fn write_config(config: &IvanConfig) -> Result<(), ConfigError> {
 
 /// `MyConfig` implements `Default`
 impl ::std::default::Default for IvanConfig {
-    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None, skin_shuffle: false } }
+    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None, skin_shuffle: false, gun_mode : GunMode::Modern} }
 }
 
 fn get_path() -> String {

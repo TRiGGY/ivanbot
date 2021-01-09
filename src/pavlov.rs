@@ -1,21 +1,26 @@
-use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam};
+use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam, BlackList, MapList, SetCash, ItemList, Kill, Raw};
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM};
-use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato};
+use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM, WW2GUN, TANKTDM};
+use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato, German, Soviet, Us};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 use crate::config::IvanConfig;
 use serde::{Serialize, Deserialize};
 use serenity::static_assertions::_core::str::FromStr;
 use rand::seq::SliceRandom;
+use crate::discord::CustomFramework;
 
 pub enum PavlovCommands {
     Help,
     Ban(SteamId),
     Kick(SteamId),
+    Kill(SteamId),
+    BlackList,
+    MapList,
     Unban(SteamId),
     RotateMap,
+    ItemList,
     SwitchMap {
         map: String,
         gamemode: GameMode,
@@ -23,6 +28,7 @@ pub enum PavlovCommands {
     SwitchTeam(SteamId, TeamId),
     GiveItem(SteamId, u32),
     GiveCash(SteamId, u32),
+    SetCash(SteamId, u32),
     GiveTeamCash(TeamId, u32),
     InspectPlayer(SteamId),
     RefreshList,
@@ -30,22 +36,25 @@ pub enum PavlovCommands {
     //Disconnect,
     ResetSND,
     SetPlayerSkin(SteamId, Skin),
-    SetLimitedAmmoType(u32),
+    SetLimitedAmmoType(String),
+    Raw(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum GameMode {
     SND,
     DM,
     TDM,
     CUSTOM,
     GUN,
+    WW2GUN,
+    TANKTDM,
 }
 
 pub type SteamId = u64;
 pub type TeamId = u32;
 
-#[derive(Copy,Clone)]
+#[derive(Copy, Clone)]
 pub enum Skin {
     Clown,
     Prisoner,
@@ -53,14 +62,21 @@ pub enum Skin {
     Farmer,
     Russian,
     Nato,
+    German,
+    Soviet,
+    Us,
 }
 
-const SKINS: [Skin; 6] = [Skin::Clown,
+const SKINS: [Skin; 9] = [
+    Skin::Clown,
     Skin::Prisoner,
     Skin::Naked,
     Skin::Farmer,
     Skin::Russian,
-    Skin::Nato];
+    Skin::Nato,
+    Skin::German,
+    Skin::Soviet,
+    Skin::Us];
 
 impl Skin {
     pub fn get_random() -> Skin {
@@ -76,12 +92,17 @@ impl PavlovCommands {
             "ban" => Ban(parse_number(pa(arguments, 1)?)?),
             "kick" => Kick(parse_number(pa(arguments, 1)?)?),
             "unban" => Unban(parse_number(pa(arguments, 1)?)?),
+            "kill" => Kill(parse_number(pa(arguments, 1)?)?),
+            "blacklist" => BlackList,
+            "maplist" => MapList,
+            "itemlist" => ItemList,
             "rotatemap" => RotateMap,
             "switchmap" => SwitchMap {
                 map: parse_map(pa(arguments, 1)?, config)?,
                 gamemode: parse_game_mode(pa(arguments, 2)?)?,
             },
             "switchteam" => SwitchTeam(parse_number(pa(arguments, 1)?)?, parse_team(pa(arguments, 2)?)?),
+            "setcash" => SetCash(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
             "giveitem" => GiveItem(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
             "givecash" => GiveCash(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
             "giveteamcash" => GiveTeamCash(parse_team(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
@@ -91,7 +112,8 @@ impl PavlovCommands {
             //"disconnect" => Disconnect,
             "resetsnd" => ResetSND,
             "setplayerskin" => SetPlayerSkin(parse_number(pa(arguments, 1)?)?, parse_skin(pa(arguments, 2)?)?),
-            "setlimitedammotype" => SetLimitedAmmoType(parse_ammo(pa(arguments, 1)?)?),
+            "setlimitedammotype" => SetLimitedAmmoType(pa(arguments, 1)?.to_string()),
+            //    "raw" => Raw(handle_raw(arguments)?),
             x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
         };
         return Ok(command);
@@ -115,23 +137,43 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
         Some(value) => value,
         None => value.to_string()
     };
-    let map = map_string.as_str();
 
-
+    let map = map_string.to_lowercase();
+    let map_str = map.as_str();
+    if is_standard_map(map_str) { return Ok(map_string); }
     let steam_workshop_regex: Regex = Regex::new("id=([0-9]+)").unwrap();
     let valid_mapname: Regex = Regex::new("[UGC]*[0-9]+").unwrap();
     if map_string.contains("steamcommunity.com") {
-        let capture = steam_workshop_regex.captures_iter(map).next().unwrap();
+        let capture = steam_workshop_regex.captures_iter(map_str).next().unwrap();
         let first = capture.get(1);
         if first.is_some() {
             Ok(format!("UGC{}", parse_number::<u32>(first.unwrap().as_str())?))
         } else {
             Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
         }
-    } else if valid_mapname.is_match(map) {
+    } else if valid_mapname.is_match(map_str) {
         Ok(map_string.to_string())
     } else {
         Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
+    }
+}
+
+fn is_standard_map(map: &str) -> bool {
+    match map {
+        "datacenter" |
+        "sand" |
+        "bridge" |
+        "containeryard" |
+        "prisonbreak" |
+        "hospital" |
+        "killhouse" |
+        "range" |
+        "tutorial" |
+        "station" |
+        "stalingrad" |
+        "santorini" |
+        "industry" => true,
+        _ => false
     }
 }
 
@@ -147,13 +189,12 @@ fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
         "farmer" => Farmer,
         "russian" => Russian,
         "nato" => Nato,
+        "german" => German,
+        "soviet" => Soviet,
+        "us" => Us,
         x => return Result::Err(PavlovError { input: x.to_string(), kind: ErrorKind::InvalidArgument })
     };
     Ok(skin)
-}
-
-fn parse_ammo(value: &str) -> Result<u32, PavlovError> {
-    parse_number(value)
 }
 
 pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
@@ -163,10 +204,28 @@ pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
         "tdm" => TDM,
         "custom" => CUSTOM,
         "gun" => GUN,
+        "ww2gun" => WW2GUN,
+        "tanktdm" => TANKTDM,
         x => return Err(PavlovError { input: x.to_string(), kind: ErrorKind::InvalidArgument })
     };
     Ok(result)
 }
+
+fn handle_raw(arguments: &Vec<&str>) -> Result<String, PavlovError> {
+    let slice = arguments[1..arguments.len()].to_vec();
+    let iter = slice.iter();
+    let concat = iter.fold("".to_string(), |a, b| format!("{} {}", a, b));
+
+    let without_prefix = concat.strip_prefix(" ");
+    match without_prefix {
+        Some(value) => Ok(value.to_string()),
+        None => Err(PavlovError {
+            input: "Raw input was empty".to_string(),
+            kind: ErrorKind::InvalidArgument,
+        })
+    }
+}
+
 
 impl Display for Skin {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -176,7 +235,10 @@ impl Display for Skin {
             Naked => "naked",
             Farmer => "farmer",
             Russian => "russian",
-            Nato => "nato"
+            Nato => "nato",
+            German => { "german" }
+            Soviet => { "soviet" }
+            Us => { "us" }
         };
         write!(f, "{}", value)
     }
@@ -189,7 +251,9 @@ impl Display for GameMode {
             DM => "DM",
             TDM => "TDM",
             CUSTOM => "CUSTOM",
-            GUN => "GUN"
+            GUN => "GUN",
+            WW2GUN => "WW2GUN",
+            TANKTDM => "TANKTDM"
         };
         write!(f, "{}", value)
     }
@@ -201,12 +265,17 @@ impl Display for PavlovCommands {
             Help => "Help".to_string(),
             Ban(steamid) => format!("Ban {}", steamid),
             Kick(steamid) => format!("Kick {}", steamid),
+            Kill(steamid) => { format!("Kill {}", steamid) }
             Unban(steamid) => format!("Unban {}", steamid),
+            BlackList => { "BlackList".to_string() }
+            MapList => { "MapList".to_string() }
             RotateMap => "RotateMap".to_string(),
             SwitchMap { map, gamemode } => format!("SwitchMap {} {}", map, gamemode),
+            ItemList => { "ItemList".to_string() }
             SwitchTeam(steamid, teamid) => format!("SwitchTeam {} {}", steamid, teamid),
             GiveItem(steamid, itemid) => format!("GiveItem {} {}", steamid, itemid),
             GiveCash(steamid, cashamt) => format!("GiveCash {} {}", steamid, cashamt),
+            SetCash(steamid, cash_amt) => { format!("SetCash {} {}", steamid, cash_amt) }
             GiveTeamCash(teamid, cashamt) => format!("GiveTeamCash {} {}", teamid, cashamt),
             InspectPlayer(steamid) => format!("InspectPlayer {}", steamid),
             RefreshList => "RefreshList".to_string(),
@@ -215,6 +284,7 @@ impl Display for PavlovCommands {
             ResetSND => "ResetSND".to_string(),
             SetPlayerSkin(steamid, skin) => format!("SetPlayerSkin {} {}", steamid, skin),
             SetLimitedAmmoType(ammo) => format!("SetLimitedAmmoType {}", ammo),
+            Raw(string) => { format!("{}", string) }
         };
         write!(f, "{}", command)
     }
@@ -235,7 +305,7 @@ pub enum ErrorKind {
     InvalidConnectionAddress,
     MissingArgument,
     InvalidMap,
-    InvalidPlayerList
+    InvalidPlayerList,
 }
 
 impl Display for PavlovError {
@@ -254,7 +324,7 @@ impl ErrorKind {
             ErrorKind::InvalidConnectionAddress => true,
             ErrorKind::MissingArgument => false,
             ErrorKind::InvalidMap => false,
-            ErrorKind::InvalidPlayerList =>false
+            ErrorKind::InvalidPlayerList => false
         }
     }
 }
@@ -270,7 +340,7 @@ impl Display for ErrorKind {
                    ErrorKind::InvalidConnectionAddress => "Connection error connecting",
                    ErrorKind::MissingArgument => "Missing argument",
                    ErrorKind::InvalidMap => "Invalid map name",
-                   ErrorKind::InvalidPlayerList =>"Invalid player format"
+                   ErrorKind::InvalidPlayerList => "Invalid player format"
                }
         )
     }

@@ -33,7 +33,7 @@ impl Connection {
         let new_connection = get_connection(&self.login_data);
         match new_connection {
             Ok(connection) => {
-                self.pavlov_connection =  connection;
+                self.pavlov_connection = connection;
             }
             Err(error) => {
                 return error.to_string();
@@ -98,7 +98,7 @@ fn read_response(reader: &mut BufReader<TcpStream>) -> io::Result<String> {
     loop {
         let line = read_line(reader)?;
         if line.eq("\r\n") {
-            continue;
+            return continue;
         }
         buffer.push_str(line.as_str());
         if line.contains("\r\n") {

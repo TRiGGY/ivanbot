@@ -6,7 +6,7 @@ IvanBot is a discord bot that allows control of a Pavlov game server through tex
 * Enhanced version of certain commands. For example, -SwitchMap *workshop_url* *gamemode* is able to resolve the map ID automatically.
 * Permission system
     * Admin: All commands
-    * Moderator: { switchmap | rotatemap | alias | map | switchteam | giveitem | givecash | resetsnd | setplayerskin | setlimitedammotype } and User commands
+    * Moderator: { switchmap | kill | maplist | setcash |rotatemap | alias | map | switchteam | giveitem | givecash | resetsnd | setplayerskin | setlimitedammotype } and User commands
     * User (when ALLOW_USERS=true) { inspectplayer | serverinfo | refreshlist | bothelp }
 * Map voting from a pre-configured pool (-map vote start/map vote finish,or wait 30 sec for the vote to end)
 * Bot manage (non RCON) commands
@@ -20,7 +20,8 @@ IvanBot is a discord bot that allows control of a Pavlov game server through tex
     * **map vote start (X)** #Start map vote with X (optional) choices, default 3
     * **map vote stop** #Conclude the map vote and switch map
     * **map list**
-    * **skin {random, clown, prisoner, naked, farmer, russian, nato}** #Change all current players to either a random skin or a specific skin
+    * **gunmode {WW2, Modern, Random}** #When maps are entered with regular gamemode GUN. WW2 will change map votes to be WW2GUN, Modern is the default and the normal GUN behavior. Random chooses either. Note that SwitchMap is not affected, only voting.
+    * **skin {random, clown, prisoner, naked, farmer, russian, nato, german, soviet, us}** #Change all current players to either a random skin or a specific skin
     * **skin shuffle {true/false}** #When enabled will execute "skin random" 90 seconds after a vote is completed
   
 # Installation 
@@ -66,4 +67,4 @@ If you have enough (5) maps it's time to start a map vote.
 
 ```-map vote start 5```
 
-Everyone can vote by adding reactions. After the vote is done (30 sec) the map will switch automatically. If you do not have any patience use ```-map vote finish```
+Everyone can vote by adding reactions. After the vote is done (30 sec) the map will switch automatically. If you do not have any patience use ```-map vote stop```

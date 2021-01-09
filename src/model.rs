@@ -7,7 +7,7 @@ use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed,
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::model::IvanError::{BotPavlovError, BotCommandError, BotConfigError};
 use crate::output::output;
-use crate::config::{IvanConfig, ConfigError, Players};
+use crate::config::{IvanConfig, ConfigError, Players, GunMode};
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found, MAX_VOTE_MAPS};
 use std::ops::Add;
@@ -19,6 +19,7 @@ use crate::pavlov::PavlovCommands::SetPlayerSkin;
 use std::error::Error;
 use std::time::Duration;
 use std::thread::sleep;
+use crate::pavlov::ErrorKind::InvalidArgument;
 
 const BOT_HELP: &str =
     "
@@ -32,7 +33,8 @@ const BOT_HELP: &str =
 -map vote start (X) #Start map vote with X (optional) choices, default 3
 -map vote stop #Conclude the map vote and switch map
 -map list
--skin {random, clown, prisoner, naked, farmer, russian, nato} #Change all current players to either a random skin or a specific skin
+-gunmode {modern,ww2,random}
+-skin {random, clown, prisoner, naked, farmer, russian, nato, german, soviet, us} #Change all current players to either a random skin or a specific skin
 -skin shuffle {true/false} #When enabled will execute \"skin random\" 90 seconds after a vote is completed
 ";
 
@@ -153,6 +155,7 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
     match first_argument.as_str() {
         "admin" => output(ctx, msg, handle_admin(arguments, &mut framework.config)?),
         "alias" => output(ctx, msg, handle_alias(arguments, &mut framework.config)?),
+        "gunmode" => output(ctx, msg, handle_gunmode(arguments, &mut framework.config)?),
         "bothelp" => output(ctx, msg, BOT_HELP.to_string()),
         "mod" => output(ctx, msg, handle_mod(arguments, &mut framework.config)?),
         "map" => handle_map(arguments, framework, msg, ctx, concurrent_framework)?,
@@ -171,6 +174,26 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
     Ok(())
 }
 
+fn handle_gunmode(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String,IvanError> {
+    let argument = pa(arguments,1)?;
+    let lower_argument = argument.to_lowercase();
+    let gunmode = match lower_argument.as_str() {
+        "modern" => GunMode::Modern,
+        "ww2" => GunMode::WW2,
+        "random" => GunMode::Random,
+        x => return Err(
+            AdminCommandError {
+                kind: BotErrorKind::InvalidArgument,
+                input: x.to_string()
+            }.into()
+        )
+    };
+    config.set_gun_mode(gunmode)?;
+    Ok(format!("Set gunmode to {}",gunmode))
+
+}
+
+
 fn handle_skin(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
     match pa(arguments, 1)? {
         "shuffle" => handle_skin_shuffle(arguments, framework),
@@ -186,6 +209,7 @@ fn handle_skin(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result
         "farmer" => assign_skins(framework, || { Skin::Farmer }),
         "russian" => assign_skins(framework, || { Skin::Russian }),
         "nato" => assign_skins(framework, || { Skin::Nato }),
+        "german" => assign_skins(framework, || { Skin::German }),
         _ => {
             Err(IvanError::from(AdminCommandError { kind: BotErrorKind::InvalidArgument, input: String::from("") }))
         }
@@ -213,7 +237,7 @@ pub fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin)
     match players_result {
         Ok(players) => {
             if players.PlayerList.is_empty() {
-                return Ok(format!("Could not assign skins because there are no players on the server"))
+                return Ok(format!("Could not assign skins because there are no players on the server"));
             }
             let mut msg = String::from("\n");
             for player in players.PlayerList {
