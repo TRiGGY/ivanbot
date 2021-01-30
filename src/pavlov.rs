@@ -4,12 +4,13 @@ use core::fmt;
 use crate::pavlov::GameMode::{SND, TDM, DM, GUN, WW2GUN, TANKTDM, KOTH};
 use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato, German, Soviet, Us};
 use regex::{Regex};
-use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
 use crate::config::IvanConfig;
 use serde::{Serialize, Deserialize};
 use serenity::static_assertions::_core::str::FromStr;
 use rand::seq::SliceRandom;
-use crate::help::{HELP_GAMEMODE, HELP_MAP,  HELP_VALID_TEAM, HELP_STEAM_ID, HELP_LIMITED_AMMO, HELP_SKIN, HELP_CASH, HELP_ITEM};
+use crate::help::{HELP_GAMEMODE, HELP_MAP, HELP_VALID_TEAM, HELP_STEAM_ID, HELP_LIMITED_AMMO, HELP_SKIN, HELP_CASH, HELP_ITEM};
+use crate::model::{BotErrorKind, IvanError};
+use crate::model::BotErrorKind::{InvalidCommand, MissingArgument, InvalidArgument, InvalidMap};
 
 pub enum PavlovCommands {
     Help,
@@ -58,7 +59,7 @@ pub const DEFAULT_MAPS: [&'static str; 13] = ["datacenter",
     "industry"];
 
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq,Copy)]
 pub enum GameMode {
     SND,
     DM,
@@ -103,7 +104,7 @@ impl Skin {
 }
 
 impl PavlovCommands {
-    pub fn parse_from_arguments(arguments: &Vec<&str>, config: &IvanConfig) -> Result<PavlovCommands, PavlovError> {
+    pub fn parse_from_arguments(arguments: &Vec<&str>, config: &IvanConfig) -> Result<PavlovCommands, IvanError> {
         let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
         let command = match first_argument.to_lowercase().as_str() {
             "help" => Help,
@@ -134,25 +135,25 @@ impl PavlovCommands {
             "setplayerskin" => SetPlayerSkin(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, parse_skin(pa(arguments, 2, HELP_SKIN)?)?),
             "setlimitedammotype" => SetLimitedAmmoType(pa(arguments, 1, HELP_LIMITED_AMMO)?.to_string()),
             //    "raw" => Raw(handle_raw(arguments)?),
-            x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
+            x => return Err(IvanError { input: x.to_string(), kind: InvalidCommand })
         };
         return Ok(command);
     }
 }
 
-pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize, help: &str) -> Result<&'a str, PavlovError> {
+pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize, help: &str) -> Result<&'a str, IvanError> {
     (arguments.get(index)).ok_or_else(|| {
-        PavlovError { input: help.to_string(), kind: MissingArgument }
+        IvanError { input: help.to_string(), kind: MissingArgument }
     }).map(|value| { *value })
 }
 
-pub fn parse_number<T: FromStr>(value: &str) -> Result<T, PavlovError> {
+pub fn parse_number<T: FromStr>(value: &str) -> Result<T, IvanError> {
     value.parse::<T>().map_err(|_error| {
-        PavlovError { input: format!("\"{}\" was not a valid number", value), kind: InvalidArgument }
+        IvanError { input: format!("\"{}\" was not a valid number", value), kind: InvalidArgument }
     })
 }
 
-pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError> {
+pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, IvanError> {
     let map_string = match config.resolve_alias(value) {
         Some(value) => value,
         None => value.to_string()
@@ -169,12 +170,12 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
         if first.is_some() {
             Ok(format!("UGC{}", parse_number::<u32>(first.unwrap().as_str())?))
         } else {
-            Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
+            Err(IvanError { input: map_string.to_string(), kind: InvalidMap })
         }
     } else if valid_mapname.is_match(map_str) {
         Ok(map_string.to_string())
     } else {
-        Err(PavlovError { input: map_string.to_string(), kind: InvalidMap })
+        Err(IvanError { input: map_string.to_string(), kind: InvalidMap })
     }
 }
 
@@ -182,11 +183,11 @@ fn is_standard_map(map: &str) -> bool {
     return DEFAULT_MAPS.contains(&map);
 }
 
-fn parse_team(value: &str) -> Result<u32, PavlovError> {
+fn parse_team(value: &str) -> Result<u32, IvanError> {
     parse_number(value)
 }
 
-fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
+fn parse_skin<'a>(value: &str) -> Result<Skin, IvanError> {
     let skin = match value.to_lowercase().as_str() {
         "clown" => Clown,
         "prisoner" => Prisoner,
@@ -197,12 +198,12 @@ fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
         "german" => German,
         "soviet" => Soviet,
         "us" => Us,
-        x => return Result::Err(PavlovError { input: format!("Invalid skin \"{}\" {}", x, HELP_SKIN), kind: ErrorKind::InvalidArgument })
+        x => return Result::Err(IvanError { input: format!("Invalid skin \"{}\" {}", x, HELP_SKIN), kind: BotErrorKind::InvalidArgument })
     };
     Ok(skin)
 }
 
-pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
+pub fn parse_game_mode(value: &str) -> Result<GameMode, IvanError> {
     let result = match value.to_lowercase().as_str() {
         "snd" => SND,
         "dm" => DM,
@@ -211,12 +212,12 @@ pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
         "ww2gun" => WW2GUN,
         "tanktdm" => TANKTDM,
         "koth" => KOTH,
-        x => return Err(PavlovError { input: format!("Invalid game mode \"{}\" {}", x, HELP_GAMEMODE), kind: ErrorKind::InvalidArgument })
+        x => return Err(IvanError { input: format!("Invalid game mode \"{}\" {}", x, HELP_GAMEMODE), kind: BotErrorKind::InvalidArgument })
     };
     Ok(result)
 }
 
-fn handle_raw(arguments: &Vec<&str>) -> Result<String, PavlovError> {
+fn handle_raw(arguments: &Vec<&str>) -> Result<String, IvanError> {
     let slice = arguments[1..arguments.len()].to_vec();
     let iter = slice.iter();
     let concat = iter.fold("".to_string(), |a, b| format!("{} {}", a, b));
@@ -224,9 +225,9 @@ fn handle_raw(arguments: &Vec<&str>) -> Result<String, PavlovError> {
     let without_prefix = concat.strip_prefix(" ");
     match without_prefix {
         Some(value) => Ok(value.to_string()),
-        None => Err(PavlovError {
+        None => Err(IvanError {
             input: "Raw input was empty".to_string(),
-            kind: ErrorKind::InvalidArgument,
+            kind: BotErrorKind::InvalidArgument,
         })
     }
 }
@@ -297,59 +298,16 @@ impl Display for PavlovCommands {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct PavlovError {
-    pub(crate) input: String,
-    pub(crate) kind: ErrorKind,
-}
 
-#[derive(Debug, Clone)]
-pub enum ErrorKind {
-    ConnectionError,
-    InvalidCommand,
-    InvalidArgument,
-    Authentication,
-    InvalidConnectionAddress,
-    MissingArgument,
-    InvalidMap,
-    InvalidPlayerList,
-}
-
-impl Display for PavlovError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.kind, self.input)
-    }
-}
-
-impl ErrorKind {
+impl BotErrorKind {
     pub fn is_fatal(&self) -> bool {
         match self {
-            ErrorKind::InvalidArgument => false,
-            ErrorKind::InvalidCommand => false,
-            ErrorKind::ConnectionError => true,
-            ErrorKind::Authentication => true,
-            ErrorKind::InvalidConnectionAddress => true,
-            ErrorKind::MissingArgument => false,
-            ErrorKind::InvalidMap => false,
-            ErrorKind::InvalidPlayerList => false
+            BotErrorKind::ConnectionError => true,
+            BotErrorKind::Authentication => true,
+            BotErrorKind::InvalidConnectionAddress => true,
+            _ => false
         }
     }
 }
 
-impl Display for ErrorKind {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}",
-               match self {
-                   ErrorKind::InvalidArgument => "Invalid argument",
-                   ErrorKind::InvalidCommand => "Invalid command ",
-                   ErrorKind::ConnectionError => "Connection error",
-                   ErrorKind::Authentication => "Authentication error with password: ",
-                   ErrorKind::InvalidConnectionAddress => "Connection error connecting",
-                   ErrorKind::MissingArgument => "Missing argument",
-                   ErrorKind::InvalidMap => "Invalid map name",
-                   ErrorKind::InvalidPlayerList => "Invalid player format"
-               }
-        )
-    }
-}
 

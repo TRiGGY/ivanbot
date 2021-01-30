@@ -26,3 +26,13 @@ Added support for WW2 update. New basic commands (Kill, MapList, SetCash)
 Support to change map to default maps New setting: GunMode {WW2, Modern, Random} (default Modern). Will let map votes
 from maps with game mode be created with either WW2GUN instead or generate them randomly between GUN and WW2GUN, Modern
 is normal behavior.
+
+# 0.7.0
+Added Koth support. 
+Added better help messages to commands.
+New commands added:
+-team balance
+-team shuffle
+Shuffle will generate new random teams.
+Balance will move as few people as possible from 1 team to the other in order to balance out team differences. Making the difference <= 1.
+

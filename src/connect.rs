@@ -4,10 +4,11 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::io::BufReader;
 use hex::encode;
-use crate::pavlov::{PavlovError, ErrorKind, PavlovCommands};
-use crate::pavlov::ErrorKind::ConnectionError;
 use std::{io};
 use crate::credentials::LoginData;
+use crate::model::{IvanError, BotErrorKind};
+use crate::model::BotErrorKind::ConnectionError;
+use crate::pavlov::PavlovCommands;
 
 const AUTHENTICATED: &str = "Authenticated=1";
 
@@ -44,7 +45,7 @@ impl Connection {
     }
 }
 
-fn get_connection(login_data: &LoginData) -> Result<PavlovConnection, PavlovError> {
+fn get_connection(login_data: &LoginData) -> Result<PavlovConnection, IvanError> {
     return pavlov_connect(&login_data.ip, &login_data.password);
 }
 
@@ -57,21 +58,21 @@ pub fn create_connection_unwrap<'a>(login_data: LoginData) -> Connection {
 }
 
 
-fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnection, PavlovError> {
+fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnection, IvanError> {
     let addr = SocketAddr::from_str(&address.as_str()).map_err(|_err| {
-        PavlovError { input: address.clone(), kind: ErrorKind::InvalidConnectionAddress }
+        IvanError { input: address.clone(), kind: BotErrorKind::InvalidConnectionAddress }
     })?;
     let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|_err| {
-        PavlovError { input: address.clone(), kind: ConnectionError }
+        IvanError { input: address.clone(), kind: ConnectionError }
     })?;
     let mut buf_reader = BufReader::new(stream.try_clone().map_err(|_err| {
-        PavlovError { input: "Error reading".to_string(), kind: ConnectionError }
+        IvanError { input: "Error reading".to_string(), kind: ConnectionError }
     })?);
     let password = sent_password(pass, &mut stream).map_err(|_err| {
-        PavlovError { input: "Error sending password".to_string(), kind: ErrorKind::ConnectionError }
+        IvanError { input: "Error sending password".to_string(), kind: BotErrorKind::ConnectionError }
     })?;
     let response1 = read_line(&mut buf_reader).map_err(|_err| {
-        PavlovError { input: "unable to read first line".to_string(), kind: ErrorKind::ConnectionError }
+        IvanError { input: "unable to read first line".to_string(), kind: BotErrorKind::ConnectionError }
     })?;
 
     return match response1.contains(AUTHENTICATED) {
@@ -79,9 +80,9 @@ fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnect
             reader: buf_reader,
             writer: stream,
         }),
-        false => Err(PavlovError {
+        false => Err(IvanError {
             input: password,
-            kind: ErrorKind::Authentication,
+            kind:BotErrorKind::Authentication,
         })
     };
 }
@@ -140,12 +141,12 @@ pub struct PavlovConnection {
 }
 
 impl PavlovConnection {
-    pub(crate) fn sent_command(&mut self, command: String) -> Result<String, PavlovError> {
+    pub(crate) fn sent_command(&mut self, command: String) -> Result<String, IvanError> {
         sent_message(&mut self.writer, command).map_err(|_err| {
-            PavlovError { input: "Couldn't sent message".to_string(), kind: ErrorKind::ConnectionError }
+            IvanError { input: "Couldn't sent message".to_string(), kind: BotErrorKind::ConnectionError }
         })?;
         read_response(&mut self.reader).map_err(|_err| {
-            PavlovError { input: "Couldn't read message response".to_string(), kind: ErrorKind::ConnectionError }
+            IvanError { input: "Couldn't read message response".to_string(), kind:BotErrorKind::ConnectionError }
         })
     }
 }

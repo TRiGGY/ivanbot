@@ -6,8 +6,8 @@ use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
 use threadpool::ThreadPool;
-use crate::config::{get_config, IvanConfig, ConfigError};
-use crate::model::{handle_command};
+use crate::config::{get_config, IvanConfig };
+use crate::model::{handle_command, IvanError};
 use crate::voting::Vote;
 use std::sync::{Mutex, Arc};
 use serenity::CacheAndHttp;
@@ -68,7 +68,7 @@ pub fn run_discord() {
     }
 }
 
-fn recover_error(error: Result<IvanConfig, ConfigError>) -> IvanConfig {
+fn recover_error(error: Result<IvanConfig, IvanError>) -> IvanConfig {
     match error {
         Err(err) => {
             println!("Could not initialize config, recreating it because: {}", err);

@@ -6,16 +6,15 @@ use crate::discord::{CustomFramework, ConcurrentFramework};
 use std::ops::{Add};
 use serenity::model::id::{MessageId, ChannelId};
 use serenity::model::channel::ReactionType::Unicode;
-use crate::model::{AdminCommandError, BotErrorKind, reply, assign_skins};
-use crate::pavlov::{PavlovError, PavlovCommands, GameMode, Skin};
+use crate::model::{IvanError, BotErrorKind, reply, assign_skins};
+use crate::pavlov::{PavlovCommands, GameMode, Skin};
 use rand::seq::{IteratorRandom, SliceRandom};
 use serenity::http::{CacheHttp, Http};
 use serenity::{CacheAndHttp};
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
-use std::time::{Duration,  Instant};
-use std::error::Error;
-use crate::config::{ GunMode};
+use std::time::{Duration, Instant};
+use crate::config::{GunMode};
 use crate::pavlov::GameMode::WW2GUN;
 
 const KNIFE: char = '🍴';
@@ -25,8 +24,14 @@ const MONEY: char = '💸';
 const CHAMPAGNE: char = '🍾';
 const SMIRK: char = '😏';
 const HAND: char = '👌';
+const BARF: char = '🤮';
+const TURD: char = '💩';
+const GOBLIN: char = '👺';
+
+const ALL_VOTE_OPTIONS: [char; 10] = [HUNDRED, KNIFE, SALT, MONEY, CHAMPAGNE, SMIRK, HAND, BARF, TURD, GOBLIN];
 
 pub const MAX_VOTE_MAPS: u32 = 4;
+
 
 pub struct Vote {
     maps: Vec<Choice>,
@@ -57,10 +62,10 @@ impl Display for Choice {
     }
 }
 
-pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework, choices: usize) -> Result<(), AdminCommandError> {
+pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework, choices: usize) -> Result<(), IvanError> {
     match &mut framework.vote {
         Some(_) => {
-            Err(AdminCommandError {
+            Err(IvanError {
                 input: "".to_string(),
                 kind: BotErrorKind::VoteInProgress,
             })
@@ -84,7 +89,7 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
             let mut reply = reply(msg, ctx.http(), vote.to_string())?;
             for x in &vote.maps {
                 _react(&mut reply, ctx, &Unicode(x.id.clone())).map_err(|_| {
-                    AdminCommandError { kind: BotErrorKind::CouldNotReply, input: "tried to react".to_string() }
+                    IvanError { kind: BotErrorKind::CouldNotReply, input: "tried to react".to_string() }
                 })?;
             }
             vote.message_id = reply.id;
@@ -99,12 +104,12 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
 }
 
 fn handle_gunmode(gamemode: GameMode, gun_mode: GunMode) -> GameMode {
-    if gamemode == GameMode::GUN && gun_mode == GunMode::WW2{
+    if gamemode == GameMode::GUN && gun_mode == GunMode::WW2 {
         WW2GUN
     } else if gamemode == GameMode::GUN && gun_mode == GunMode::Random {
         vec![GameMode::GUN, GameMode::WW2GUN].choose(&mut rand::thread_rng()).unwrap().clone()
     } else {
-        gamemode.clone()
+        gamemode
     }
 }
 
@@ -135,7 +140,7 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
             match framework_arc.lock() {
                 Ok(mut value) => {
                     reply(&mut msg, &cache.http, assign_skins(&mut value, Skin::get_random).unwrap_or_else(|error| { error.to_string() })).unwrap_or_else(|value| {
-                        println!("{}",value);
+                        println!("{}", value);
                         msg
                     });
                 }
@@ -148,7 +153,7 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
     });
 }
 
-fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>) -> Result<(), Box<dyn Error>> {
+fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>) -> Result<(), IvanError> {
     let start = Instant::now();
     let vote_duration = Duration::from_secs(30);
     let sleep_duration = Duration::from_secs(3);
@@ -172,17 +177,21 @@ fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &
     Ok(())
 }
 
-fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>, time_left: Duration) -> Result<(), Box<dyn Error>> {
+fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>, time_left: Duration) -> Result<(), IvanError> {
     match framework_clone.lock() {
         Ok(mut framework) => {
             match &mut framework.vote {
                 Some(vote) => {
                     vote.countdown = time_left.as_secs();
-                    let mut message = cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0)?;
-                    message.edit(cache_clone, |m| { m.content(format!("{}", vote)) })?;
+                    let mut message = cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).map_err(|err| {
+                        IvanError { input: format!("{}", err), kind: BotErrorKind::MessageRetrieveError }
+                    })?;
+                    message.edit(cache_clone, |m| { m.content(format!("{}", vote)) }).map_err(|err| {
+                        IvanError { input: format!("{}", err), kind: BotErrorKind::MessageEditError }
+                    })?;
                     Ok(())
                 }
-                None => { Err(Box::new(AdminCommandError { kind: BotErrorKind::VoteNotInProgress, input: "".to_string() })) }
+                None => { Err(IvanError { kind: BotErrorKind::VoteNotInProgress, input: "".to_string() }) }
             }
         }
         Err(_) => {
@@ -198,7 +207,7 @@ fn _react(msg: &mut Message, cache_http: &mut impl CacheHttp, reaction_type: &Re
 }
 
 
-pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, http: &Arc<Http>) -> Result<(), AdminCommandError> {
+pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, http: &Arc<Http>) -> Result<(), IvanError> {
     match &framework.vote {
         Some(vote) => {
             let mut message = http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
@@ -210,7 +219,7 @@ pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, ht
 
             Ok(())
         }
-        None => Err(AdminCommandError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })
+        None => Err(IvanError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })
     }
 }
 
@@ -238,23 +247,13 @@ fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
     }
 }
 
-pub fn convert_to_not_found() -> fn(PavlovError) -> AdminCommandError {
-    return |i: PavlovError| -> AdminCommandError {
-        AdminCommandError {
-            input: i.input,
-            kind: BotErrorKind::MissingArgument,
-        }
-    };
-}
-
-fn get_random_emojis(amount: usize) -> Result<Vec<String>, AdminCommandError> {
-    if amount > 7 {
-        return Err(AdminCommandError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)", amount) });
+fn get_random_emojis(amount: usize) -> Result<Vec<&'static char>, IvanError> {
+    if ALL_VOTE_OPTIONS.len() <= amount {
+        return Err(IvanError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)", amount) });
     }
-    let emojis = vec!(HUNDRED.to_string(), KNIFE.to_string(), SALT.to_string(), MONEY.to_string(), CHAMPAGNE.to_string(), SMIRK.to_string(), HAND.to_string());
-    let mut chosen = emojis.iter().choose_multiple(&mut rand::thread_rng(), amount);
+    let mut chosen = ALL_VOTE_OPTIONS.iter().choose_multiple(&mut rand::thread_rng(), amount);
     chosen.shuffle(&mut rand::thread_rng());
-    Ok(chosen.iter().map(|value| { (*value).clone() }).collect())
+    Ok(chosen.iter().map(|value| { (value).clone() }).collect())
 }
 
 

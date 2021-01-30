@@ -4,47 +4,14 @@ use rand::seq::SliceRandom;
 use crate::pavlov::GameMode;
 use derive_more::{Display};
 use serde::export::Formatter;
-use core::{fmt, result};
-use crate::model::{AdminCommandError, BotErrorKind};
+use core::{fmt };
+use crate::model::{BotErrorKind, IvanError};
 use serde::{Deserialize, Serialize};
 use std::{fs};
 use serde_json::{to_string_pretty, from_str};
-use std::fmt::{Error};
 use dirs::home_dir;
 
 const IVAN_CONFIG: &str = "ivan.json";
-
-#[derive(Debug, Clone)]
-pub struct ConfigError {
-    pub(crate) input: String,
-    pub(crate) kind: ConfigErrorKind,
-}
-
-impl std::fmt::Display for ConfigError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> result::Result<(), Error> {
-        write!(f, "Error: {} because of: {}", self.kind, self.input)
-    }
-}
-
-#[derive(Debug, Clone, Display)]
-pub enum ConfigErrorKind {
-    ReadConfigError,
-    SerializeError,
-    DeserializeError,
-    WriteError,
-}
-
-
-// impl Display for ConfigErrorKind {
-//     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-//         write!(f, "{}", match self {
-//             ConfigErrorKind::DeserializeError => { "Deserialize Error" }
-//             ConfigErrorKind::ReadConfigError => { "Read Config Error" }
-//             ConfigErrorKind::SerializeError => { "Serialize Error" }
-//             ConfigErrorKind::WriteError => { "Write Config Error" }
-//         })
-//     }
-// }
 
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
@@ -144,29 +111,29 @@ impl IvanConfig {
         }
     }
 
-    pub fn add_admin(&mut self, id: u64) -> Result<(), ConfigError> {
+    pub fn add_admin(&mut self, id: u64) -> Result<(), IvanError> {
         self.admins.retain(|item| { *item != id });
         self.admins.push(id);
         write_config(&self)
     }
-    pub fn remove_admin(&mut self, id: u64) -> Result<(), ConfigError> {
+    pub fn remove_admin(&mut self, id: u64) -> Result<(), IvanError> {
         self.admins.retain(|item| { *item != id });
         write_config(&self)
     }
-    pub fn add_mod(&mut self, id: u64) -> Result<(), ConfigError> {
+    pub fn add_mod(&mut self, id: u64) -> Result<(), IvanError> {
         self.mods.retain(|item| { *item != id });
         self.mods.push(id);
         write_config(&self)
     }
-    pub fn remove_mod(&mut self, id: u64) -> Result<(), ConfigError> {
+    pub fn remove_mod(&mut self, id: u64) -> Result<(), IvanError> {
         self.mods.retain(|item| { *item != id });
         write_config(&self)
     }
-    pub fn add_alias(&mut self, alias: String, mapname: String) -> Result<(), ConfigError> {
+    pub fn add_alias(&mut self, alias: String, mapname: String) -> Result<(), IvanError> {
         self.aliases.push((alias, mapname));
         write_config(&self)
     }
-    pub fn remove_alias(&mut self, alias: String) -> Result<(), ConfigError> {
+    pub fn remove_alias(&mut self, alias: String) -> Result<(), IvanError> {
         self.aliases.retain(|(key, value)| {
             *key.to_lowercase() != alias.to_lowercase() && *value != alias
         });
@@ -180,19 +147,19 @@ impl IvanConfig {
         })
     }
 
-    pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) -> Result<(), ConfigError> {
+    pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) -> Result<(), IvanError> {
         self.maps.push(PoolMap { map, gamemode, alias });
         write_config(&self)
     }
-    pub fn remove_map(&mut self, alias: String) -> Result<(), ConfigError> {
+    pub fn remove_map(&mut self, alias: String) -> Result<(), IvanError> {
         self.maps.retain(|map| {
             map.alias != alias && map.map != alias
         });
         write_config(&self)
     }
-    pub fn get_maps_random(&self, amount: usize) -> Result<Vec<&PoolMap>, AdminCommandError> {
+    pub fn get_maps_random(&self, amount: usize) -> Result<Vec<&PoolMap>, IvanError> {
         if self.maps.len() < amount {
-            return Err(AdminCommandError { input: format!("{} was more than the amount of maps in the pool", amount), kind: BotErrorKind::InvalidVoteAmount });
+            return Err(IvanError{ input: format!("{} was more than the amount of maps in the pool", amount), kind: BotErrorKind::InvalidVoteAmount });
         }
         let value: Vec<&PoolMap> = self.maps.choose_multiple(&mut rand::thread_rng(), amount).collect();
         return Ok(value.clone());
@@ -211,16 +178,16 @@ impl IvanConfig {
         return self.channel_lock;
     }
 
-    pub fn add_channel_lock(&mut self, channel_id: u64) -> Result<(), ConfigError> {
+    pub fn add_channel_lock(&mut self, channel_id: u64) -> Result<(), IvanError> {
         self.channel_lock = Some(channel_id);
         write_config(&self)
     }
-    pub fn remove_channel_lock(&mut self) -> Result<(), ConfigError> {
+    pub fn remove_channel_lock(&mut self) -> Result<(), IvanError> {
         self.channel_lock = None;
         write_config(&self)
     }
 
-    pub fn set_skin_shuffle(&mut self, value: bool) -> Result<(), ConfigError> {
+    pub fn set_skin_shuffle(&mut self, value: bool) -> Result<(), IvanError> {
         self.skin_shuffle = value;
         write_config(&self)
     }
@@ -229,7 +196,7 @@ impl IvanConfig {
         self.skin_shuffle
     }
 
-    pub fn set_gun_mode(&mut self, value : GunMode) -> Result<(), ConfigError> {
+    pub fn set_gun_mode(&mut self, value : GunMode) -> Result<(), IvanError> {
         self.gun_mode = value;
         write_config(&self)
     }
@@ -240,21 +207,21 @@ impl IvanConfig {
 }
 
 
-pub fn get_config() -> Result<IvanConfig, ConfigError> {
+pub fn get_config() -> Result<IvanConfig, IvanError> {
     let file = fs::read_to_string(get_path()).map_err(|err| {
-        ConfigError { input: err.to_string(), kind: ConfigErrorKind::ReadConfigError }
+        IvanError { input: err.to_string(), kind: BotErrorKind::ReadConfigError}
     })?;
     return from_str(file.as_str()).map_err(|err| {
-        ConfigError { input: err.to_string(), kind: ConfigErrorKind::DeserializeError }
+        IvanError { input: err.to_string(), kind: BotErrorKind::DeserializeError }
     });
 }
 
-fn write_config(config: &IvanConfig) -> Result<(), ConfigError> {
+fn write_config(config: &IvanConfig) -> Result<(), IvanError> {
     let values = to_string_pretty(&config).map_err(|err| {
-        ConfigError { input: err.to_string(), kind: ConfigErrorKind::SerializeError }
+        IvanError { input: err.to_string(), kind: BotErrorKind::SerializeError }
     })?;
     fs::write(get_path(), values).map_err(|err| {
-        ConfigError { input: err.to_string(), kind: ConfigErrorKind::WriteError }
+        IvanError { input: err.to_string(), kind: BotErrorKind::WriteError }
     })
 }
 
