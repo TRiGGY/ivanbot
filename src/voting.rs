@@ -17,7 +17,6 @@ use std::time::{Duration,  Instant};
 use std::error::Error;
 use crate::config::{ GunMode};
 use crate::pavlov::GameMode::WW2GUN;
-use crate::config::GunMode::Random;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -135,7 +134,10 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
             sleep(Duration::from_secs(90));
             match framework_arc.lock() {
                 Ok(mut value) => {
-                    reply(&mut msg, &cache.http, assign_skins(&mut value, Skin::get_random).unwrap_or_else(|error| { error.to_string() }));
+                    reply(&mut msg, &cache.http, assign_skins(&mut value, Skin::get_random).unwrap_or_else(|error| { error.to_string() })).unwrap_or_else(|value| {
+                        println!("{}",value);
+                        msg
+                    });
                 }
                 Err(err) => {
                     println!("{}", err.to_string());

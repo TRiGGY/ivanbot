@@ -1,7 +1,7 @@
-use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam, BlackList, MapList, SetCash, ItemList, Kill, Raw};
+use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam, BlackList, MapList, SetCash, ItemList, Kill, Raw, AddMod, RemoveMod};
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use crate::pavlov::GameMode::{SND, TDM, DM, GUN, CUSTOM, WW2GUN, TANKTDM};
+use crate::pavlov::GameMode::{SND, TDM, DM, GUN, WW2GUN, TANKTDM, KOTH};
 use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato, German, Soviet, Us};
 use regex::{Regex};
 use crate::pavlov::ErrorKind::{InvalidMap, InvalidArgument, MissingArgument, InvalidCommand};
@@ -9,7 +9,7 @@ use crate::config::IvanConfig;
 use serde::{Serialize, Deserialize};
 use serenity::static_assertions::_core::str::FromStr;
 use rand::seq::SliceRandom;
-use crate::discord::CustomFramework;
+use crate::help::{HELP_GAMEMODE, HELP_MAP,  HELP_VALID_TEAM, HELP_STEAM_ID, HELP_LIMITED_AMMO, HELP_SKIN, HELP_CASH, HELP_ITEM};
 
 pub enum PavlovCommands {
     Help,
@@ -17,6 +17,8 @@ pub enum PavlovCommands {
     Kick(SteamId),
     Kill(SteamId),
     BlackList,
+    AddMod(SteamId),
+    RemoveMod(SteamId),
     MapList,
     Unban(SteamId),
     RotateMap,
@@ -26,7 +28,7 @@ pub enum PavlovCommands {
         gamemode: GameMode,
     },
     SwitchTeam(SteamId, TeamId),
-    GiveItem(SteamId, u32),
+    GiveItem(SteamId, String),
     GiveCash(SteamId, u32),
     SetCash(SteamId, u32),
     GiveTeamCash(TeamId, u32),
@@ -38,17 +40,33 @@ pub enum PavlovCommands {
     SetPlayerSkin(SteamId, Skin),
     SetLimitedAmmoType(String),
     Raw(String),
+
 }
+
+pub const DEFAULT_MAPS: [&'static str; 13] = ["datacenter",
+    "sand",
+    "bridge",
+    "containeryard",
+    "prisonbreak",
+    "hospital",
+    "killhouse",
+    "range",
+    "tutorial",
+    "station",
+    "stalingrad",
+    "santorini",
+    "industry"];
+
 
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
 pub enum GameMode {
     SND,
     DM,
     TDM,
-    CUSTOM,
     GUN,
     WW2GUN,
     TANKTDM,
+    KOTH,
 }
 
 pub type SteamId = u64;
@@ -89,30 +107,32 @@ impl PavlovCommands {
         let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
         let command = match first_argument.to_lowercase().as_str() {
             "help" => Help,
-            "ban" => Ban(parse_number(pa(arguments, 1)?)?),
-            "kick" => Kick(parse_number(pa(arguments, 1)?)?),
-            "unban" => Unban(parse_number(pa(arguments, 1)?)?),
-            "kill" => Kill(parse_number(pa(arguments, 1)?)?),
+            "ban" => Ban(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
+            "kick" => Kick(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
+            "unban" => Unban(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
+            "kill" => Kill(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
             "blacklist" => BlackList,
+            "addmod" => AddMod(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
+            "removemod" => RemoveMod(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
             "maplist" => MapList,
             "itemlist" => ItemList,
-            "rotatemap" => RotateMap,
-            "switchmap" => SwitchMap {
-                map: parse_map(pa(arguments, 1)?, config)?,
-                gamemode: parse_game_mode(pa(arguments, 2)?)?,
+            "rotatemap" | "maprotate" => RotateMap,
+            "switchmap" | "mapswitch" | "switch" => SwitchMap {
+                map: parse_map(pa(arguments, 1, HELP_MAP)?, config)?,
+                gamemode: parse_game_mode(pa(arguments, 2, HELP_GAMEMODE)?)?,
             },
-            "switchteam" => SwitchTeam(parse_number(pa(arguments, 1)?)?, parse_team(pa(arguments, 2)?)?),
-            "setcash" => SetCash(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
-            "giveitem" => GiveItem(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
-            "givecash" => GiveCash(parse_number(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
-            "giveteamcash" => GiveTeamCash(parse_team(pa(arguments, 1)?)?, parse_number(pa(arguments, 2)?)?),
-            "inspectplayer" => InspectPlayer(parse_number(pa(arguments, 1)?)?),
+            "switchteam" => SwitchTeam(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, parse_team(pa(arguments, 2, HELP_VALID_TEAM)?)?),
+            "setcash" => SetCash(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, parse_number(pa(arguments, 2, HELP_CASH)?)?),
+            "giveitem" => GiveItem(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, pa(arguments, 2, HELP_ITEM)?.to_string()),
+            "givecash" => GiveCash(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, parse_number(pa(arguments, 2, HELP_CASH)?)?),
+            "giveteamcash" => GiveTeamCash(parse_team(pa(arguments, 1, HELP_VALID_TEAM)?)?, parse_number(pa(arguments, 2, HELP_CASH)?)?),
+            "inspectplayer" => InspectPlayer(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?),
             "refreshlist" => RefreshList,
             "serverinfo" => ServerInfo,
             //"disconnect" => Disconnect,
             "resetsnd" => ResetSND,
-            "setplayerskin" => SetPlayerSkin(parse_number(pa(arguments, 1)?)?, parse_skin(pa(arguments, 2)?)?),
-            "setlimitedammotype" => SetLimitedAmmoType(pa(arguments, 1)?.to_string()),
+            "setplayerskin" => SetPlayerSkin(parse_number(pa(arguments, 1, HELP_STEAM_ID)?)?, parse_skin(pa(arguments, 2, HELP_SKIN)?)?),
+            "setlimitedammotype" => SetLimitedAmmoType(pa(arguments, 1, HELP_LIMITED_AMMO)?.to_string()),
             //    "raw" => Raw(handle_raw(arguments)?),
             x => return Err(PavlovError { input: x.to_string(), kind: InvalidCommand })
         };
@@ -120,15 +140,15 @@ impl PavlovCommands {
     }
 }
 
-pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize) -> Result<&'a str, PavlovError> {
+pub fn pa<'a>(arguments: &Vec<&'a str>, index: usize, help: &str) -> Result<&'a str, PavlovError> {
     (arguments.get(index)).ok_or_else(|| {
-        PavlovError { input: "".to_string(), kind: MissingArgument }
+        PavlovError { input: help.to_string(), kind: MissingArgument }
     }).map(|value| { *value })
 }
 
 pub fn parse_number<T: FromStr>(value: &str) -> Result<T, PavlovError> {
     value.parse::<T>().map_err(|_error| {
-        PavlovError { input: value.to_string(), kind: InvalidArgument }
+        PavlovError { input: format!("\"{}\" was not a valid number", value), kind: InvalidArgument }
     })
 }
 
@@ -159,22 +179,7 @@ pub fn parse_map(value: &str, config: &IvanConfig) -> Result<String, PavlovError
 }
 
 fn is_standard_map(map: &str) -> bool {
-    match map {
-        "datacenter" |
-        "sand" |
-        "bridge" |
-        "containeryard" |
-        "prisonbreak" |
-        "hospital" |
-        "killhouse" |
-        "range" |
-        "tutorial" |
-        "station" |
-        "stalingrad" |
-        "santorini" |
-        "industry" => true,
-        _ => false
-    }
+    return DEFAULT_MAPS.contains(&map);
 }
 
 fn parse_team(value: &str) -> Result<u32, PavlovError> {
@@ -192,7 +197,7 @@ fn parse_skin<'a>(value: &str) -> Result<Skin, PavlovError> {
         "german" => German,
         "soviet" => Soviet,
         "us" => Us,
-        x => return Result::Err(PavlovError { input: x.to_string(), kind: ErrorKind::InvalidArgument })
+        x => return Result::Err(PavlovError { input: format!("Invalid skin \"{}\" {}", x, HELP_SKIN), kind: ErrorKind::InvalidArgument })
     };
     Ok(skin)
 }
@@ -202,11 +207,11 @@ pub fn parse_game_mode(value: &str) -> Result<GameMode, PavlovError> {
         "snd" => SND,
         "dm" => DM,
         "tdm" => TDM,
-        "custom" => CUSTOM,
         "gun" => GUN,
         "ww2gun" => WW2GUN,
         "tanktdm" => TANKTDM,
-        x => return Err(PavlovError { input: x.to_string(), kind: ErrorKind::InvalidArgument })
+        "koth" => KOTH,
+        x => return Err(PavlovError { input: format!("Invalid game mode \"{}\" {}", x, HELP_GAMEMODE), kind: ErrorKind::InvalidArgument })
     };
     Ok(result)
 }
@@ -236,9 +241,9 @@ impl Display for Skin {
             Farmer => "farmer",
             Russian => "russian",
             Nato => "nato",
-            German => { "german" }
-            Soviet => { "soviet" }
-            Us => { "us" }
+            German => "german",
+            Soviet => "soviet",
+            Us => "us",
         };
         write!(f, "{}", value)
     }
@@ -250,10 +255,10 @@ impl Display for GameMode {
             SND => "SND",
             DM => "DM",
             TDM => "TDM",
-            CUSTOM => "CUSTOM",
             GUN => "GUN",
             WW2GUN => "WW2GUN",
-            TANKTDM => "TANKTDM"
+            TANKTDM => "TANKTDM",
+            KOTH => "KOTH"
         };
         write!(f, "{}", value)
     }
@@ -268,6 +273,8 @@ impl Display for PavlovCommands {
             Kill(steamid) => { format!("Kill {}", steamid) }
             Unban(steamid) => format!("Unban {}", steamid),
             BlackList => { "BlackList".to_string() }
+            AddMod(steamid) => format!("AddMod {}", steamid),
+            RemoveMod(steamid) => format!("RemoveMod {}", steamid),
             MapList => { "MapList".to_string() }
             RotateMap => "RotateMap".to_string(),
             SwitchMap { map, gamemode } => format!("SwitchMap {} {}", map, gamemode),

@@ -10,6 +10,7 @@ mod discord;
 mod connect;
 mod pavlov;
 mod credentials;
+mod help;
 
 fn main() {
     run_discord();

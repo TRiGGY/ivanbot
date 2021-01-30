@@ -27,7 +27,7 @@ pub fn handle_mod(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<Stri
 pub fn handle_admin(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, AdminCommandError> {
     let mode = pa(arguments, 1)?;
     match mode {
-        "add" => add_admin(parse_discord_id(pa(arguments, 2)?)?, config),
+        "add" => add_admin(parse_discord_id(pa(arguments, 2,)?)?, config),
         "remove" => remove_admin(parse_discord_id(pa(arguments, 2)?)?, config),
         _ => Err(AdminCommandError {
             input: mode.to_string(),

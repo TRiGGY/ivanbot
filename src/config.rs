@@ -46,15 +46,35 @@ pub enum ConfigErrorKind {
 //     }
 // }
 
+#[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct Players {
     pub(crate) PlayerList: Vec<Player>
 }
 
-#[derive(Deserialize)]
+#[allow(non_snake_case)]
+#[derive(Deserialize,Clone)]
 pub struct Player {
     pub(crate) Username: String,
     pub(crate) UniqueId: String,
+}
+
+#[allow(non_snake_case)]
+#[derive(Deserialize)]
+pub struct PlayerInfoContainer {
+    pub(crate) PlayerInfo : PlayerInfo
+}
+
+#[allow(non_snake_case)]
+#[derive(Deserialize,Clone)]
+pub struct PlayerInfo {
+    pub(crate) PlayerName: String,
+    pub(crate) UniqueId: String,
+    pub(crate) KDA: String,
+    pub(crate) Score: String,
+    pub(crate) Cash: String,
+    pub(crate) TeamId: String,
+
 }
 
 

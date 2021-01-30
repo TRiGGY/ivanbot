@@ -1,25 +1,23 @@
 use serenity::client::Context;
 use serenity::model::channel::Message;
-use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, parse_number, Skin, ErrorKind};
+use crate::pavlov::{PavlovCommands, PavlovError, parse_map, parse_game_mode, parse_number, Skin, ErrorKind, DEFAULT_MAPS};
 use regex::Regex;
 use crate::parsing::{pa};
 use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed, user_allowed};
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::model::IvanError::{BotPavlovError, BotCommandError, BotConfigError};
 use crate::output::output;
-use crate::config::{IvanConfig, ConfigError, Players, GunMode};
+use crate::config::{IvanConfig, ConfigError, Players, GunMode, Player, PlayerInfo, PlayerInfoContainer};
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, convert_to_not_found, MAX_VOTE_MAPS};
-use std::ops::Add;
+use std::ops::{Add};
 use serde::export::fmt::Display;
 use serenity::http::{CacheHttp, Http};
 use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
-use crate::pavlov::PavlovCommands::SetPlayerSkin;
+use crate::pavlov::PavlovCommands::{SetPlayerSkin, SwitchTeam};
 use std::error::Error;
-use std::time::Duration;
-use std::thread::sleep;
-use crate::pavlov::ErrorKind::InvalidArgument;
+use rand::seq::SliceRandom;
 
 const BOT_HELP: &str =
     "
@@ -32,7 +30,9 @@ const BOT_HELP: &str =
 -map add {url/map} gamemode alias #Add map to pool
 -map vote start (X) #Start map vote with X (optional) choices, default 3
 -map vote stop #Conclude the map vote and switch map
--map list
+-map list #List the map pool
+-map default #List default maps
+-team {shuffle, balance} #Will shuffle or balance the teams always creating evenly matched results
 -gunmode {modern,ww2,random}
 -skin {random, clown, prisoner, naked, farmer, russian, nato, german, soviet, us} #Change all current players to either a random skin or a specific skin
 -skin shuffle {true/false} #When enabled will execute \"skin random\" 90 seconds after a vote is completed
@@ -159,6 +159,7 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
         "bothelp" => output(ctx, msg, BOT_HELP.to_string()),
         "mod" => output(ctx, msg, handle_mod(arguments, &mut framework.config)?),
         "map" => handle_map(arguments, framework, msg, ctx, concurrent_framework)?,
+        "team" => output(ctx, msg, handle_team(arguments, framework)?),
         "channel" => {
             let channel = handle_channel(arguments, msg, &mut framework.config)?;
             output(ctx, msg, channel);
@@ -174,8 +175,146 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
     Ok(())
 }
 
-fn handle_gunmode(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String,IvanError> {
-    let argument = pa(arguments,1)?;
+fn handle_team(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
+    let argument = pa(arguments, 1)?;
+
+    return match argument {
+        "shuffle" => handle_team_shuffle(framework).map_err(|err| err.into()),
+        "balance" => handle_balance(framework).map_err(|err| err.into()),
+        _ => Ok("".to_string()),
+    };
+}
+
+fn get_player_list(framework: &mut CustomFramework) -> Result<Vec<Player>, PavlovError> {
+    let players_string = framework.connection.execute_command(PavlovCommands::RefreshList);
+    let player = serde_json::from_str::<Players>(players_string.as_str()).map_err(|err| PavlovError { input: format!("tried to get players but failed {}", err), kind: ErrorKind::InvalidPlayerList })?;
+    Ok(player.PlayerList)
+}
+
+fn inspect_all(player: Vec<Player>, framework: &mut CustomFramework) -> Result<Vec<PlayerInfo>, PavlovError> {
+    let player_list: Vec<Result<PlayerInfo, PavlovError>> = player.iter().map(|value| {
+        inspect_player(value, framework)
+    }).collect();
+
+    let error: Option<&PavlovError> = player_list.iter().filter_map(|element| {
+        match element {
+            Err(err) => Option::Some(err),
+            Ok(_) => Option::None
+        }
+    }).find(|_| true);
+
+    if let Option::Some(some) = error {
+        return Err(some.clone());
+    } else {
+        let filtered_list: Vec<PlayerInfo> = player_list.iter().filter_map(|value| { value.as_ref().map(|player| Some(player.clone())).unwrap_or_else(|_| Option::None) }).collect();
+        Ok(filtered_list)
+    }
+}
+
+fn handle_balance(framework: &mut CustomFramework) -> Result<String, PavlovError> {
+    let mut player_list = get_player_list(framework)?;
+    if player_list.is_empty() { return Ok("could not shuffle teams because the server doesn't have players".to_string()); }
+    player_list.shuffle(&mut rand::thread_rng());
+    let inspect_list = inspect_all(player_list, framework)?;
+    let balance = inspect_list.iter().fold(
+        0, |first, second| -> i32 {
+            let team_id: i32 = parse_number(second.TeamId.as_str()).unwrap();
+            first + if team_id == 0 {
+                -1
+            } else {
+                1
+            }
+        },
+    ) / 2;
+
+    if balance > 0 {
+        Ok(switch_team(inspect_list, 0, balance, framework))
+    } else if balance < -1 {
+        Ok(switch_team(inspect_list, 1, balance * -1, framework))
+    } else {
+        Ok("teams are already balanced".to_string())
+    }
+}
+
+fn switch_team(inspect_list: Vec<PlayerInfo>, move_to_team: u32, player_amount: i32, framework: &mut CustomFramework) -> String {
+    let mut count = player_amount;
+    let list: Vec<String> = inspect_list.iter().map(|value| {
+        let team_id: u32 = parse_number(value.TeamId.as_str()).unwrap();
+        if count > 0 && team_id != move_to_team {
+            let result = team_switch(value, &move_to_team, framework)
+                .unwrap_or_else(|err| err.to_string());
+            count = count - 1;
+            result
+        } else {
+            format!("")
+        }
+    }).collect();
+
+    list.iter().fold("".to_string(), |a, b| format!("{}\n{}", a, b))
+}
+
+fn inspect_player(player: &Player, framework: &mut CustomFramework) -> Result<PlayerInfo, PavlovError> {
+    let inspect = framework.connection.execute_command(PavlovCommands::InspectPlayer(parse_number(player.UniqueId.as_str())?));
+    Ok(serde_json::from_str::<PlayerInfoContainer>(inspect.as_str()).map_err(|err| PavlovError { input: format!("could not parse PlayerInfo because of {}", err.to_string()), kind: ErrorKind::InvalidPlayerList })?.PlayerInfo)
+}
+
+
+fn handle_team_shuffle(framework: &mut CustomFramework) -> Result<String, PavlovError> {
+    let mut players_result = get_player_list(framework)?;
+    if players_result.is_empty() { return Ok("could not shuffle teams because the server doesn't have players".to_string()); }
+    players_result.shuffle(&mut rand::thread_rng());
+    let player_amount = players_result.len();
+    let mut counter: i32 = player_amount as i32 / 2;
+    let ids: Vec<(u32, PlayerInfo)> = players_result.iter().filter_map(|player| -> Option<(u32, PlayerInfo)> {
+        counter = counter - 1;
+        randomize_player(framework, player, &counter).unwrap_or(Option::None)
+    }).collect();
+    let message = ids.iter().map(|value| {
+        let (team, player) = value;
+        team_switch(player, team, framework).unwrap_or(format!("error switching team for {}", player.PlayerName))
+    }).fold("".to_string(), |a, b| format!("{}\n{}", a, b)).trim().to_string();
+    Ok(message)
+}
+
+fn team_switch(player: &PlayerInfo, team: &u32, framework: &mut CustomFramework) -> Result<String, PavlovError> {
+    let player_team: u32 = parse_number(&player.TeamId)?;
+    let color = team_color(team);
+    if !team.eq(&player_team) {
+        let steamid: u64 = parse_number(player.UniqueId.as_str())?;
+        framework.connection.execute_command(SwitchTeam(steamid, team.clone()));
+        Ok(format!("{} switched to team {}", player.PlayerName, color))
+    } else {
+        Ok(format!("{} stays with team {}", player.PlayerName, color))
+    }
+}
+
+fn team_color(team_color: &u32) -> String {
+    match team_color {
+        0 => "BLUE".to_string(),
+        1 => "RED".to_string(),
+        x => format!("unknown team {}", x)
+    }
+}
+
+
+fn randomize_player(framework: &mut CustomFramework, player: &Player, counter: &i32) -> Result<Option<(u32, PlayerInfo)>, PavlovError> {
+    let inspect = framework.connection.execute_command(PavlovCommands::InspectPlayer(parse_number(player.UniqueId.as_str())?));
+    let info = serde_json::from_str::<PlayerInfoContainer>(inspect.as_str()).map_err(|err| PavlovError { input: format!("could not parse PlayerInfo because of {}", err.to_string()), kind: ErrorKind::InvalidPlayerList });
+    match info {
+        Ok(value) => {
+            let choice = if *counter >= 0 { 0 } else { 1 };
+            Ok(Some((choice, value.PlayerInfo)))
+        }
+        Err(err) => {
+            println!("encountered error {}", err);
+            Ok(Option::None)
+        }
+    }
+}
+
+
+fn handle_gunmode(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, IvanError> {
+    let argument = pa(arguments, 1)?;
     let lower_argument = argument.to_lowercase();
     let gunmode = match lower_argument.as_str() {
         "modern" => GunMode::Modern,
@@ -184,13 +323,12 @@ fn handle_gunmode(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<Stri
         x => return Err(
             AdminCommandError {
                 kind: BotErrorKind::InvalidArgument,
-                input: x.to_string()
+                input: x.to_string(),
             }.into()
         )
     };
     config.set_gun_mode(gunmode)?;
-    Ok(format!("Set gunmode to {}",gunmode))
-
+    Ok(format!("Set gunmode to {}", gunmode))
 }
 
 
@@ -244,7 +382,6 @@ pub fn assign_skins(framework: &mut CustomFramework, skin_decider: fn() -> Skin)
                 let skin = skin_decider();
                 msg = msg.add(format!("Player: \"{}\" gets the skin: \"{}\"\n", player.Username, &skin).as_str());
                 println!("{}", framework.connection.execute_command(SetPlayerSkin(parse_number(player.UniqueId.as_str())?, skin)));
-                sleep(Duration::from_secs(1));
             }
             Ok(msg)
         }
@@ -296,8 +433,14 @@ fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut 
         "remove" => map_remove(arguments, framework, msg, ctx),
         "vote" => handle_vote(arguments, framework, msg, ctx, concurrent_framework),
         "list" => handle_map_pool(framework, msg, ctx),
+        "default" => Ok(output(ctx, msg,format_default_maps())),
         command => Err(BotCommandError(AdminCommandError { input: command.to_string(), kind: BotErrorKind::InvalidCommand }))
     }
+}
+fn format_default_maps() -> String {
+    DEFAULT_MAPS.iter().fold("".to_string(), |a,b| {
+        format!("{}\n{}",a,b)
+    })
 }
 
 fn handle_map_pool(framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), IvanError> {
