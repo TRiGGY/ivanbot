@@ -3,13 +3,13 @@ use rand;
 use rand::seq::SliceRandom;
 use crate::pavlov::GameMode;
 use derive_more::{Display};
-use serde::export::Formatter;
 use core::{fmt };
 use crate::model::{BotErrorKind, IvanError};
 use serde::{Deserialize, Serialize};
 use std::{fs};
 use serde_json::{to_string_pretty, from_str};
 use dirs::home_dir;
+use std::fmt::Formatter;
 
 const IVAN_CONFIG: &str = "ivan.json";
 
