@@ -1,5 +1,5 @@
 
-pub const HELP_GAMEMODE: &str = "valid game modes are [WW2GUN, GUN, DM, KOTH, SND, TDM]";
+pub const HELP_GAMEMODE: &str = "valid game modes are [WW2GUN, GUN, DM, KOTH, SND, TDM, OITC, TANKTDM]";
 pub const HELP_SKIN: &str = "valid skins are {Us, Soviet, German, Nato, Russian, Farmer, Naked, Prisoner, Clown}";
 pub const HELP_SKIN_TEAM: &str = "valid skins are [Us, Soviet, German, Nato, Russian, Farmer, Naked, Prisoner, Clown] or use random";
 pub const HELP_SKIN_MODE: &str = "valid arguments {true, false}";
@@ -12,7 +12,7 @@ pub const HELP_CASH : &str = "specify a cash amount";
 pub const HELP_LIMITED_AMMO : &str = "valid ammo options are the numbers 0-2";
 pub const HELP_ITEM : &str = "specify valid item id";
 
-pub const HELP_GUNMODE : &str = "valid are [modern, ww2, random]";
+pub const HELP_GUNMODE : &str = "valid are [modern, ww2, random, oitcRandom]";
 
 pub const HELP_MOD_MODE : &str = "valid ones are {add, remove}";
 pub const HELP_ADMIN_MODE : &str = "valid ones are {add, remove}";

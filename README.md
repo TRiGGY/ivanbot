@@ -20,7 +20,9 @@ IvanBot is a discord bot that allows control of a Pavlov game server through tex
     * **map vote start (X)** #Start map vote with X (optional) choices, default 3
     * **map vote stop** #Conclude the map vote and switch map
     * **map list**
-    * **gunmode {WW2, Modern, Random}** #When maps are entered with regular gamemode GUN. WW2 will change map votes to be WW2GUN, Modern is the default and the normal GUN behavior. Random chooses either. Note that SwitchMap is not affected, only voting.
+    * **map default**
+    * **team {shuffle, balance}**
+    * **gunmode {WW2, Modern, Random, OitcRandom}** #When maps are entered with regular gamemode GUN. WW2 will change map votes to be WW2GUN, Modern is the default and the normal GUN behavior. Random chooses either. Note that SwitchMap is not affected, only voting.
     * **skin {random, clown, prisoner, naked, farmer, russian, nato, german, soviet, us}** #Change all current players to either a random skin or a specific skin
     * **skin shuffle {true/false}** #When enabled will execute "skin random" 90 seconds after a vote is completed
   

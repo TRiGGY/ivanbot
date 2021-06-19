@@ -36,3 +36,5 @@ New commands added:
 Shuffle will generate new random teams.
 Balance will move as few people as possible from 1 team to the other in order to balance out team differences. Making the difference <= 1.
 
+#0.7.1
+Added OITC support.

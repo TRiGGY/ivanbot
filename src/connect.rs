@@ -82,7 +82,7 @@ fn pavlov_connect<'a, >(address: &String, pass: &String) -> Result<PavlovConnect
         }),
         false => Err(IvanError {
             input: password,
-            kind:BotErrorKind::Authentication,
+            kind: BotErrorKind::Authentication,
         })
     };
 }
@@ -146,7 +146,7 @@ impl PavlovConnection {
             IvanError { input: "Couldn't sent message".to_string(), kind: BotErrorKind::ConnectionError }
         })?;
         read_response(&mut self.reader).map_err(|_err| {
-            IvanError { input: "Couldn't read message response".to_string(), kind:BotErrorKind::ConnectionError }
+            IvanError { input: "Couldn't read message response".to_string(), kind: BotErrorKind::ConnectionError }
         })
     }
 }

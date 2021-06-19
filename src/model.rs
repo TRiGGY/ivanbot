@@ -9,13 +9,13 @@ use crate::config::{IvanConfig, Players, GunMode, Player, PlayerInfo, PlayerInfo
 use crate::model::BotErrorKind::InvalidMapAlias;
 use crate::voting::{handle_vote_start, handle_vote_finish, MAX_VOTE_MAPS};
 use std::ops::{Add};
-use serde::export::fmt::Display;
 use serenity::http::{CacheHttp, Http};
 use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
 use crate::pavlov::PavlovCommands::{SetPlayerSkin, SwitchTeam};
 use rand::seq::SliceRandom;
 use crate::help::{HELP_TEAM_MODE, HELP_GUNMODE, HELP_SKIN_TEAM, HELP_SKIN_MODE, HELP_CHANNEL_MODE, HELP_MAP, HELP_MAP_ARGUMENT, HELP_VOTE_ARGUMENT, HELP_VOTE_NUMBER, HELP_ALIAS_ARGUMENT, HELP_ALIAS, HELP_GAMEMODE, HELP_ALIAS_OR_MAP};
+use std::fmt::Display;
 
 const BOT_HELP: &str =
     "
@@ -85,7 +85,7 @@ impl Display for BotErrorKind {
             BotErrorKind::VoteInProgress => "There's already a vote in progress",
             BotErrorKind::VoteNotInProgress => "There's no vote in progress",
             BotErrorKind::CouldNotReply => "Could not reply to the channel",
-            BotErrorKind::InvalidGameMode => "Invalid game mode valid valid [DM,TDM,GUN,SND]",
+            BotErrorKind::InvalidGameMode => "Invalid game mode valid valid [DM,TDM,GUN,WW2GUN,SND,WW2TDM,TANKTDM,TTT,KOTH]",
             BotErrorKind::InvalidVoteAmount => "Can't start a vote of this size",
             BotErrorKind::ConnectionError => "Connection error",
             BotErrorKind::Authentication => "Authentication error with password: ",
@@ -294,6 +294,7 @@ fn handle_gunmode(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<Stri
         "modern" => GunMode::Modern,
         "ww2" => GunMode::WW2,
         "random" => GunMode::Random,
+        "oitcrandom" => GunMode::OitcRandom,
         x => return Err(
             IvanError {
                 kind: BotErrorKind::InvalidArgument,

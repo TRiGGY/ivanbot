@@ -1,7 +1,7 @@
 use crate::pavlov::PavlovCommands::{Help, Ban, Kick, RotateMap, SwitchMap, Unban, GiveItem, GiveCash, GiveTeamCash, InspectPlayer, RefreshList, ServerInfo, ResetSND, SetPlayerSkin, SetLimitedAmmoType, SwitchTeam, BlackList, MapList, SetCash, ItemList, Kill, Raw, AddMod, RemoveMod};
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use crate::pavlov::GameMode::{SND, TDM, DM, GUN, WW2GUN, TANKTDM, KOTH};
+use crate::pavlov::GameMode::{SND, TDM, DM, GUN, WW2GUN, TANKTDM, KOTH, TTT, WW2TDM, OITC};
 use crate::pavlov::Skin::{Clown, Prisoner, Naked, Russian, Farmer, Nato, German, Soviet, Us};
 use regex::{Regex};
 use crate::config::IvanConfig;
@@ -44,7 +44,8 @@ pub enum PavlovCommands {
 
 }
 
-pub const DEFAULT_MAPS: [&'static str; 13] = ["datacenter",
+pub const DEFAULT_MAPS: [&'static str; 13] = [
+    "datacenter",
     "sand",
     "bridge",
     "containeryard",
@@ -56,10 +57,11 @@ pub const DEFAULT_MAPS: [&'static str; 13] = ["datacenter",
     "station",
     "stalingrad",
     "santorini",
-    "industry"];
+    "industry"
+];
 
 
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq,Copy)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Copy)]
 pub enum GameMode {
     SND,
     DM,
@@ -68,6 +70,9 @@ pub enum GameMode {
     WW2GUN,
     TANKTDM,
     KOTH,
+    TTT,
+    WW2TDM,
+    OITC,
 }
 
 pub type SteamId = u64;
@@ -212,6 +217,9 @@ pub fn parse_game_mode(value: &str) -> Result<GameMode, IvanError> {
         "ww2gun" => WW2GUN,
         "tanktdm" => TANKTDM,
         "koth" => KOTH,
+        "ttt" => TTT,
+        "ww2tdm" => WW2TDM,
+        "oitc" => OITC,
         x => return Err(IvanError { input: format!("Invalid game mode \"{}\" {}", x, HELP_GAMEMODE), kind: BotErrorKind::InvalidArgument })
     };
     Ok(result)
@@ -259,7 +267,10 @@ impl Display for GameMode {
             GUN => "GUN",
             WW2GUN => "WW2GUN",
             TANKTDM => "TANKTDM",
-            KOTH => "KOTH"
+            KOTH => "KOTH",
+            TTT => "TTT",
+            WW2TDM => "WW2TDM",
+            GameMode::OITC => { "OITC" }
         };
         write!(f, "{}", value)
     }

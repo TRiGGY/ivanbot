@@ -1,7 +1,7 @@
 use std::env::var;
 use rand;
 use rand::seq::SliceRandom;
-use crate::pavlov::GameMode;
+use crate::pavlov::{GameMode, DEFAULT_MAPS};
 use derive_more::{Display};
 use core::{fmt };
 use crate::model::{BotErrorKind, IvanError};
@@ -65,7 +65,8 @@ pub struct IvanConfig {
 pub enum GunMode {
     Modern,
     WW2,
-    Random
+    Random,
+    OitcRandom
 }
 
 impl Default for GunMode {

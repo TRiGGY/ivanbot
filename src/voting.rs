@@ -15,7 +15,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use crate::config::{GunMode};
-use crate::pavlov::GameMode::WW2GUN;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -105,7 +104,9 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
 
 fn handle_gunmode(gamemode: GameMode, gun_mode: GunMode) -> GameMode {
     if gamemode == GameMode::GUN && gun_mode == GunMode::WW2 {
-        WW2GUN
+        GameMode::WW2GUN
+    } else if gamemode == GameMode::GUN && gun_mode == GunMode::OitcRandom {
+        vec![GameMode::GUN, GameMode::WW2GUN, GameMode::OITC].choose(&mut rand::thread_rng()).unwrap().clone()
     } else if gamemode == GameMode::GUN && gun_mode == GunMode::Random {
         vec![GameMode::GUN, GameMode::WW2GUN].choose(&mut rand::thread_rng()).unwrap().clone()
     } else {
@@ -116,7 +117,7 @@ fn handle_gunmode(gamemode: GameMode, gun_mode: GunMode) -> GameMode {
 fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHttp>) {
     std::thread::spawn(move || {
         wait_until_ready(framework_arc.clone(), &cache).unwrap_or_else(|error| {
-            println!("waiting for vote failded because: {}", error);
+            println!("waiting for vote failed because: {}", error);
             return;
         });
         let (mut msg, skin_shuffle) = match framework_arc.lock() {
@@ -134,7 +135,6 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
                 return ();
             }
         };
-
         if skin_shuffle {
             sleep(Duration::from_secs(90));
             match framework_arc.lock() {
@@ -145,7 +145,7 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
                     });
                 }
                 Err(err) => {
-                    println!("{}", err.to_string());
+                    println!("mutex error {}", err.to_string());
                     return ();
                 }
             }
@@ -248,7 +248,7 @@ fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
 }
 
 fn get_random_emojis(amount: usize) -> Result<Vec<&'static char>, IvanError> {
-    if ALL_VOTE_OPTIONS.len() <= amount {
+    if ALL_VOTE_OPTIONS.len() < amount {
         return Err(IvanError { kind: BotErrorKind::InvalidVoteAmount, input: format!("{} was more than the amount of emojis I have hardcoded :)", amount) });
     }
     let mut chosen = ALL_VOTE_OPTIONS.iter().choose_multiple(&mut rand::thread_rng(), amount);
