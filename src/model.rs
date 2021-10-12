@@ -1,21 +1,24 @@
 use serenity::client::Context;
-use serenity::model::channel::Message;
-use crate::pavlov::{PavlovCommands, parse_map, parse_game_mode, parse_number, Skin, DEFAULT_MAPS, pa};
+use serenity::model::channel::{Message, ChannelType};
+use crate::pavlov::{PavlovCommands, parse_map, parse_game_mode, parse_number, Skin, DEFAULT_MAPS, pa, GameMode};
 use regex::Regex;
 use crate::permissions::{handle_admin, handle_mod, PermissionLevel, mod_allowed, user_allowed};
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::output::output;
 use crate::config::{IvanConfig, Players, GunMode, Player, PlayerInfo, PlayerInfoContainer};
 use crate::model::BotErrorKind::InvalidMapAlias;
-use crate::voting::{handle_vote_start, handle_vote_finish, MAX_VOTE_MAPS};
+use crate::voting::{MAX_VOTE_MAPS, handle_vote_start};
 use std::ops::{Add};
 use serenity::http::{CacheHttp, Http};
 use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
 use crate::pavlov::PavlovCommands::{SetPlayerSkin, SwitchTeam};
 use rand::seq::SliceRandom;
-use crate::help::{HELP_TEAM_MODE, HELP_GUNMODE, HELP_SKIN_TEAM, HELP_SKIN_MODE, HELP_CHANNEL_MODE, HELP_MAP, HELP_MAP_ARGUMENT, HELP_VOTE_ARGUMENT, HELP_VOTE_NUMBER, HELP_ALIAS_ARGUMENT, HELP_ALIAS, HELP_GAMEMODE, HELP_ALIAS_OR_MAP};
+use crate::help::{HELP_GUNMODE, HELP_SKIN_TEAM, HELP_SKIN_MODE, HELP_CHANNEL_MODE, HELP_MAP, HELP_MAP_ARGUMENT, HELP_ALIAS_ARGUMENT, HELP_ALIAS, HELP_GAMEMODE, HELP_ALIAS_OR_MAP, HELP_VOTE_AMOUNT, HELP_VOTE_CHOICE_NUMBER, HELP_VALID_TEAM, HELP_TEAM_CREATE, HELP_TEAM_MODES, HELP_TEAM_CHANNEL};
 use std::fmt::Display;
+use std::any::TypeId;
+use serenity::model::guild::Member;
+use serenity::CacheAndHttp;
 
 const BOT_HELP: &str =
     "
@@ -59,6 +62,7 @@ pub enum BotErrorKind {
     InvalidGameMode,
     VoteInProgress,
     VoteNotInProgress,
+    VoteAuthorNotFound,
     CouldNotReply,
     InvalidVoteAmount,
     ConnectionError,
@@ -72,6 +76,7 @@ pub enum BotErrorKind {
     WriteError,
     MessageRetrieveError,
     MessageEditError,
+    DiscordError,
 }
 
 impl Display for BotErrorKind {
@@ -86,7 +91,7 @@ impl Display for BotErrorKind {
             BotErrorKind::VoteNotInProgress => "There's no vote in progress",
             BotErrorKind::CouldNotReply => "Could not reply to the channel",
             BotErrorKind::InvalidGameMode => "Invalid game mode valid valid [DM,TDM,GUN,WW2GUN,SND,WW2TDM,TANKTDM,TTT,KOTH]",
-            BotErrorKind::InvalidVoteAmount => "Can't start a vote of this size",
+            BotErrorKind::InvalidVoteAmount => "Can't set the vote choices to this number",
             BotErrorKind::ConnectionError => "Connection error",
             BotErrorKind::Authentication => "Authentication error with password: ",
             BotErrorKind::InvalidConnectionAddress => "Connection error connecting",
@@ -98,6 +103,8 @@ impl Display for BotErrorKind {
             BotErrorKind::WriteError => "Write config error",
             BotErrorKind::MessageRetrieveError => "Could not retrieve message error",
             BotErrorKind::MessageEditError => "Could not edit message",
+            BotErrorKind::VoteAuthorNotFound => { "Could not find vote author" }
+            BotErrorKind::DiscordError => { "Error interacting with discord" }
         })
     }
 }
@@ -134,6 +141,7 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
         "mod" => output(ctx, msg, handle_mod(arguments, &mut framework.config)?),
         "map" => handle_map(arguments, framework, msg, ctx, concurrent_framework)?,
         "team" => output(ctx, msg, handle_team(arguments, framework)?),
+        "vote" => output(ctx, msg, handle_vote_amount(arguments, &mut framework.config)?),
         "channel" => {
             let channel = handle_channel(arguments, msg, &mut framework.config)?;
             output(ctx, msg, channel);
@@ -150,12 +158,11 @@ fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut M
 }
 
 fn handle_team(arguments: &Vec<&str>, framework: &mut CustomFramework) -> Result<String, IvanError> {
-    let argument = pa(arguments, 1, HELP_TEAM_MODE)?;
+    let argument = pa(arguments, 1, HELP_TEAM_MODES)?;
 
     return match argument {
-        "shuffle" => handle_team_shuffle(framework),
-        "balance" => handle_balance(framework),
-        _ => Err(IvanError { input: format!("{}", HELP_TEAM_MODE), kind: BotErrorKind::InvalidArgument }),
+        "channels" => handle_team_channels(arguments, &mut framework.config),
+        _ => Err(IvanError { input: format!("{}", HELP_TEAM_MODES), kind: BotErrorKind::InvalidArgument }),
     };
 }
 
@@ -185,7 +192,7 @@ fn inspect_all(player: Vec<Player>, framework: &mut CustomFramework) -> Result<V
     }
 }
 
-fn handle_balance(framework: &mut CustomFramework) -> Result<String, IvanError> {
+fn handle_create(framework: &mut CustomFramework) -> Result<String, IvanError> {
     let mut player_list = get_player_list(framework)?;
     if player_list.is_empty() { return Ok("could not shuffle teams because the server doesn't have players".to_string()); }
     player_list.shuffle(&mut rand::thread_rng());
@@ -233,21 +240,11 @@ fn inspect_player(player: &Player, framework: &mut CustomFramework) -> Result<Pl
 }
 
 
-fn handle_team_shuffle(framework: &mut CustomFramework) -> Result<String, IvanError> {
-    let mut players_result = get_player_list(framework)?;
-    if players_result.is_empty() { return Ok("could not shuffle teams because the server doesn't have players".to_string()); }
-    players_result.shuffle(&mut rand::thread_rng());
-    let player_amount = players_result.len();
-    let mut counter: i32 = player_amount as i32 / 2;
-    let ids: Vec<(u32, PlayerInfo)> = players_result.iter().filter_map(|player| -> Option<(u32, PlayerInfo)> {
-        counter = counter - 1;
-        randomize_player(framework, player, &counter).unwrap_or(Option::None)
-    }).collect();
-    let message = ids.iter().map(|value| {
-        let (team, player) = value;
-        team_switch(player, team, framework).unwrap_or(format!("error switching team for {}", player.PlayerName))
-    }).fold("".to_string(), |a, b| format!("{}\n{}", a, b)).trim().to_string();
-    Ok(message)
+fn handle_team_channels(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, IvanError> {
+    let channel1 = parse_number(pa(arguments, 2, HELP_TEAM_CHANNEL)?)?;
+    let channel2 = parse_number(pa(arguments, 3, HELP_TEAM_CHANNEL)?)?;
+    config.set_team_channels(channel1, channel2)?;
+    Ok(format!("added team channels {} and {}", channel1, channel2))
 }
 
 fn team_switch(player: &PlayerInfo, team: &u32, framework: &mut CustomFramework) -> Result<String, IvanError> {
@@ -438,28 +435,59 @@ fn make_message<T: Display>(maps: &Vec<T>) -> String {
     message
 }
 
-fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
-    let second = pa(arguments, 2, HELP_VOTE_ARGUMENT)?;
-    let choices = pa(arguments, 3, HELP_VOTE_NUMBER);
-    let amount = match choices {
-        Ok(value) => parse_number(value).map_err(|err| {
-            IvanError { input: err.input, kind: BotErrorKind::InvalidArgument }
-        })?,
-        Err(_) => MAX_VOTE_MAPS
+fn handle_vote_amount(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, IvanError> {
+    let amount = pa(arguments, 1, HELP_VOTE_AMOUNT)?;
+
+    let number = match amount.to_lowercase().as_str() {
+        "choices" => parse_number(pa(arguments, 2, HELP_VOTE_CHOICE_NUMBER)?)?,
+        _ => return Err(IvanError { input: amount.to_string(), kind: BotErrorKind::InvalidArgument })
     };
-    if amount < 2 {
-        return Err(IvanError { input: "you need at least 2 maps to choose from".to_string(), kind: BotErrorKind::InvalidVoteAmount });
-    }
-    match second {
-        "start" => Ok(handle_vote_start(framework, msg, ctx, concurrent_framework, amount as usize)?),
-        "stop" => Ok(handle_vote_finish(framework, msg, &ctx.http)?),
-        command => {
-            invalid_argument(command, HELP_VOTE_ARGUMENT)?;
-            Ok(())
-        }
-    }
+    config.set_vote_amount(number)?;
+    Ok(format!("Set the vote choices to {}", number))
 }
 
+
+fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
+//    let second = pa(arguments, 2, HELP_VOTE_ARGUMENT)?;
+
+    let game_mode = match pa(arguments, 2, HELP_GAMEMODE) {
+        Ok(value) => { Option::Some(parse_game_mode(value)?) }
+        Err(_) => { Option::None }
+    };
+
+
+    let users = get_users_from_channel(msg, ctx).unwrap_or_else(|value| {
+        println!("Couldn't retrieve users from channel {}", value);
+        vec![]
+    });
+
+
+    let teams = match pa(arguments, 3, HELP_TEAM_CREATE) {
+        Ok(value) => Some(parse_team_create(value, game_mode)?),
+        Err(_) => None
+    }.map(|_| {
+        let team1: Vec<u64> = users.choose_multiple(&mut rand::thread_rng(), users.len() / 2).cloned().collect();
+        let team2: Vec<u64> = users.clone().iter().filter(|element| {
+            !team1.contains(&element)
+        }).cloned().collect();
+        (team1, team2)
+    });
+    return Ok(handle_vote_start(framework, msg, ctx, concurrent_framework, game_mode, users, teams)?);
+}
+
+fn parse_team_create(value: &str, game_mode: Option<GameMode>) -> Result<(), IvanError> {
+    if value.to_lowercase().eq("teams") {
+        match game_mode {
+            Some(GameMode::TDM) => Ok(()),
+            Some(GameMode::KOTH) => Ok(()),
+            Some(GameMode::TANKTDM) => Ok(()),
+            Some(GameMode::SND) => Ok(()),
+            _ => Err(IvanError { input: "can only add teams argument to map votes with team gamemode".to_string(), kind: BotErrorKind::InvalidArgument })
+        }
+    } else {
+        Err(IvanError { input: value.to_string(), kind: BotErrorKind::InvalidArgument })
+    }
+}
 
 fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String, IvanError> {
     let mode = pa(arguments, 1, HELP_ALIAS_ARGUMENT)?;
@@ -485,11 +513,11 @@ fn handle_alias(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<String
 }
 
 fn map_add(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &Context) -> Result<(), IvanError> {
-    let map = parse_map(pa(arguments, 2,HELP_MAP)?, &framework.config)?;
-    let gamemode = parse_game_mode(pa(arguments, 3,HELP_GAMEMODE)?).map_err(|err| {
+    let map = parse_map(pa(arguments, 2, HELP_MAP)?, &framework.config)?;
+    let gamemode = parse_game_mode(pa(arguments, 3, HELP_GAMEMODE)?).map_err(|err| {
         IvanError { input: err.input, kind: BotErrorKind::InvalidGameMode }
     })?;
-    let alias = check_alias(pa(arguments, 4,HELP_ALIAS)?)?;
+    let alias = check_alias(pa(arguments, 4, HELP_ALIAS)?)?;
     framework.config.add_alias(alias.to_string(), map.clone())?;
     framework.config.add_map(map.clone(), gamemode.clone(), alias.to_string())?;
     reply(msg, ctx.http(), format!("Map added to pool with id: \"{}\",gamemode: \"{}\" alias: \"{}\"", map, gamemode, alias))?;
@@ -500,9 +528,44 @@ fn map_remove(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut 
     if framework.vote.is_some() {
         return Err(IvanError { input: "Can't remove a map when a vote is in progress".to_string(), kind: BotErrorKind::VoteInProgress }.into());
     }
-    let alias_or_map = pa(arguments, 2,HELP_ALIAS_OR_MAP)?;
+    let alias_or_map = pa(arguments, 2, HELP_ALIAS_OR_MAP)?;
     framework.config.remove_alias(alias_or_map.to_string())?;
     framework.config.remove_map(alias_or_map.to_string())?;
     handle_map_pool(framework, msg, ctx)
 }
 
+
+pub fn get_users_from_channel<'a>(msg: &mut Message, ctx: &mut dyn CacheHttp) -> serenity::Result<Vec<u64>> {
+    return match msg.guild_id {
+        None => { serenity::Result::Ok(vec!()) }
+        Some(guild_id) => {
+            let author = msg.author.id.0.clone();
+            let guild = ctx.http().get_guild(guild_id.0)?;
+            let guild_channels = guild.channels(&ctx.http())?;
+            guild_channels.iter().filter(|(id, channel)| {
+                channel.kind == ChannelType::Voice
+            }).find_map(|(id, channel)| {
+              //  ctx.http().get_guild_members()
+                for members in channel.members(ctx.cache().unwrap()) {
+                    for member in members {
+                        println!("in channel {} user: {}",member.user_id().0,member.user_id().0)
+                    }
+                }
+                let members = channel.members(ctx.cache().unwrap()).unwrap_or_else(|err| {
+                    println!("Could not find author of map vote {}", err);
+                    vec![]
+                });
+                println!("{}\n{}", channel, members.iter().fold("found users: ".to_string(), |a, b| {
+                    a.add(b.user.read().id.0.to_string().as_str()).add(" ")
+                }));
+                if members.iter().any(|member| { member.user.read().id.0 == author }) {
+                    Some(members.iter().map(|member| member.user.read().id.0).collect())
+                } else {
+                    None
+                }
+            }).map_or_else(|| { serenity::Result::Ok(vec![]) }, |value| {
+                serenity::Result::Ok(value)
+            })
+        }
+    };
+}

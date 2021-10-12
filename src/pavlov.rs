@@ -80,6 +80,7 @@ pub type TeamId = u32;
 
 #[derive(Copy, Clone)]
 pub enum Skin {
+    Cop,
     Clown,
     Prisoner,
     Naked,
@@ -253,6 +254,7 @@ impl Display for Skin {
             German => "german",
             Soviet => "soviet",
             Us => "us",
+            Cop => "cop"
         };
         write!(f, "{}", value)
     }

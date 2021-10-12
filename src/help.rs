@@ -18,12 +18,15 @@ pub const HELP_MOD_MODE : &str = "valid ones are {add, remove}";
 pub const HELP_ADMIN_MODE : &str = "valid ones are {add, remove}";
 
 
-pub const HELP_TEAM_MODE : &str = "valid team mode, valid ones are {shuffle, balance}";
+pub const HELP_TEAM_MODES : &str = "valid team mode, valid ones are {channels}";
+
+
 pub const HELP_MAP_ARGUMENT: &str = "valid map arguments are [add, remove, vote, list, default]";
-pub const HELP_VOTE_ARGUMENT: &str = "valid vote arguments are {start, stop}";
-pub const HELP_VOTE_NUMBER: &str = "valid amounts are 2-7";
 pub const HELP_CHANNEL_MODE: &str = "valid arguments are [lock, unlock]";
 pub const HELP_ALIAS_ARGUMENT: &str = "valid arguments are [add, remove, list]";
 pub const HELP_ALIAS: &str = "valid alias are a to z and numbers 0-9";
 pub const HELP_ALIAS_OR_MAP: &str = "specify a valid alias or default map. (use -map list or -map default to find map names)";
-
+pub const HELP_VOTE_AMOUNT : &str = "valid arguments are [choices]";
+pub const HELP_VOTE_CHOICE_NUMBER: &str = "valid number of choices are [2-10]";
+pub const HELP_TEAM_CREATE: &str = "valid arguments are [teams]";
+pub const HELP_TEAM_CHANNEL: &str = "requires channel id to identify channel";

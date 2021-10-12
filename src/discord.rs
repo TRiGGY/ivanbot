@@ -13,6 +13,7 @@ use std::sync::{Mutex, Arc};
 use serenity::CacheAndHttp;
 use crate::permissions::PermissionLevel;
 use crate::connect::{Connection,  create_connection_unwrap};
+use std::time::Duration;
 
 
 struct Handler;
@@ -47,7 +48,12 @@ pub struct CustomFramework {
 
 pub fn run_discord() {
     let token = get_discord_token();
-    let mut client = Client::new(&token, Handler {}).unwrap();
+    let mut client = Client::new_with_extras(&token, |extra| {
+        extra.cache_update_timeout(Duration::from_secs(5));
+        extra.event_handler(Handler{});
+        extra
+    }
+    ).unwrap();
     let login = get_login();
     let config = recover_error(get_config());
     let connection = create_connection_unwrap(login);

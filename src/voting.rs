@@ -1,20 +1,22 @@
 use std::fmt::{Display, Formatter};
 use core::fmt;
-use serenity::model::channel::{Message, ReactionType, MessageReaction};
+use serenity::model::channel::{Message, ReactionType, MessageReaction, GuildChannel};
 use serenity::client::Context;
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use std::ops::{Add};
-use serenity::model::id::{MessageId, ChannelId};
+use serenity::model::id::{MessageId, ChannelId, GuildId};
 use serenity::model::channel::ReactionType::Unicode;
-use crate::model::{IvanError, BotErrorKind, reply, assign_skins};
+use crate::model::{IvanError, BotErrorKind, reply, assign_skins, get_users_from_channel};
 use crate::pavlov::{PavlovCommands, GameMode, Skin};
 use rand::seq::{IteratorRandom, SliceRandom};
 use serenity::http::{CacheHttp, Http};
 use serenity::{CacheAndHttp};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLockReadGuard};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use crate::config::{GunMode};
+use serenity::utils::with_cache;
+use serenity::prelude::RwLock;
 
 const KNIFE: char = '🍴';
 const SALT: char = '🧂';
@@ -37,9 +39,16 @@ pub struct Vote {
     message_id: MessageId,
     channel_id: ChannelId,
     countdown: u64,
+    users: Vec<u64>,
+    pub teams: Option<(Vec<u64>, Vec<u64>)>,
 }
 
-struct Choice { id: String, map: String, alias: String, gamemode: GameMode }
+struct Choice {
+    id: String,
+    map: String,
+    alias: String,
+    gamemode: GameMode,
+}
 
 impl Display for Vote {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -51,8 +60,25 @@ impl Display for Vote {
             let with_enter = a.add("\n");
             with_enter.add(b.as_str())
         });
-        write!(f, "{}", message)
+        write!(f, "{}", message)?;
+
+        match &self.teams {
+            Some((team1, team2)) => {
+                write!(f, "\nRed team: {}", format_users(team1))?;
+                write!(f, "\nBlue team: {}", format_users(team2))
+            }
+            None => {
+                write!(f, "\nGet ready to vote: {}", format_users(&self.users))
+            }
+        }
     }
+}
+
+fn format_users(vec: &Vec<u64>) -> String {
+    let value = vec.iter().fold("".to_string(), |a, b| {
+        a.add(format!("<@{}> ", b).as_str())
+    });
+    value.trim_end().to_string()
 }
 
 impl Display for Choice {
@@ -61,7 +87,7 @@ impl Display for Choice {
     }
 }
 
-pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework, choices: usize) -> Result<(), IvanError> {
+pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework, game_mode: Option<GameMode>, users: Vec<u64>, teams: Option<(Vec<u64>, Vec<u64>)>) -> Result<(), IvanError> {
     match &mut framework.vote {
         Some(_) => {
             Err(IvanError {
@@ -70,12 +96,12 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
             })
         }
         None => {
-            let maps = framework.config.get_maps_random(choices)?;
+            let maps = framework.config.get_maps_random(game_mode)?;
             if maps.is_empty() {
                 reply(msg, ctx.http(), "Can not start a vote without a map pool, add maps with -map add [url/map] [gamemode] [alias]".to_string())?;
                 return Ok(());
             }
-            let emojis = get_random_emojis(choices)?;
+            let emojis = get_random_emojis(framework.config.get_vote_amount() as usize)?;
             let choices: Vec<Choice> = maps.iter().zip(emojis).map(|(poolmap, emoji)| {
                 Choice {
                     id: emoji.to_string(),
@@ -84,7 +110,8 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
                     gamemode: handle_gunmode(poolmap.gamemode.clone(), framework.config.get_gun_mode()),
                 }
             }).collect();
-            let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id, countdown: 30 };
+
+            let mut vote = Vote { maps: choices, message_id: MessageId(0), channel_id: msg.channel_id, countdown: 30, users, teams };
             let mut reply = reply(msg, ctx.http(), vote.to_string())?;
             for x in &vote.maps {
                 _react(&mut reply, ctx, &Unicode(x.id.clone())).map_err(|_| {
@@ -123,8 +150,10 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
         let (mut msg, skin_shuffle) = match framework_arc.lock() {
             Ok(mut value) => {
                 if let Some(vote) = &value.vote {
-                    let mut message = cache.http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
-                    handle_vote_finish(&mut value, &mut message, &cache.http).unwrap();
+                    let mut message = cache.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
+                    handle_vote_finish(&mut value, &mut message, cache.clone()).unwrap_or_else(|err| {
+                        println!("{}", err)
+                    });
                     (message, value.config.get_skin_shuffle())
                 } else {
                     return;
@@ -183,7 +212,7 @@ fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<C
             match &mut framework.vote {
                 Some(vote) => {
                     vote.countdown = time_left.as_secs();
-                    let mut message = cache_clone.http.get_message(vote.channel_id.0, vote.message_id.0).map_err(|err| {
+                    let mut message = cache_clone.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).map_err(|err| {
                         IvanError { input: format!("{}", err), kind: BotErrorKind::MessageRetrieveError }
                     })?;
                     message.edit(cache_clone, |m| { m.content(format!("{}", vote)) }).map_err(|err| {
@@ -203,25 +232,71 @@ fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<C
 
 
 fn _react(msg: &mut Message, cache_http: &mut impl CacheHttp, reaction_type: &ReactionType) -> serenity::Result<()> {
-    cache_http.http().create_reaction(msg.channel_id.0, msg.id.0, reaction_type)
+    cache_http.http().create_reaction(msg.channel_id.clone().0, msg.id.clone().0, reaction_type)
 }
 
 
-pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, http: &Arc<Http>) -> Result<(), IvanError> {
-    match &framework.vote {
+pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, mut ctx: Arc<CacheAndHttp>) -> Result<(), IvanError> {
+    match &mut framework.vote {
         Some(vote) => {
-            let mut message = http.get_message(vote.channel_id.0, vote.message_id.0).unwrap();
+            let mut message = ctx.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
             let winner = determine_winner(vote, &mut message);
-            reply(msg, http, format!("The winner is: {}", winner))?;
+            reply(msg, &ctx.http, format!("The winner is: {}", winner))?;
             let response = framework.connection.execute_command(PavlovCommands::SwitchMap { map: winner.map.clone(), gamemode: winner.gamemode.clone() });
-            reply(msg, http, response)?;
-            framework.vote = None;
+            reply(msg, &ctx.http, response)?;
+            let teams = vote.teams.clone();
 
-            Ok(())
+            framework.vote = None;
+            match teams {
+                None => {println!("there are no teams so no moving")}
+                Some((team1, team2)) => {
+                    return match framework.config.get_team_channels() {
+                        Some((channel1, channel2)) => {
+                            let channel_1 = get_channel(&mut ctx, channel1)?;
+                            let channel_2 = get_channel(&mut ctx, channel2)?;
+                            move_to_channel(&mut ctx, channel_1.clone(), channel_2.clone(), team2)?;
+                            move_to_channel(&mut ctx, channel_2.clone(), channel_1.clone(), team1)?;
+
+                            Ok(())
+                        }
+                        None => {
+                            reply(msg, &ctx.http, "No team channels configured so users will not be moved".to_string());
+                            Ok(())
+                        }
+                    };
+                }
+            }
+            return Ok(());
         }
         None => Err(IvanError { input: "".to_string(), kind: BotErrorKind::VoteNotInProgress })
     }
 }
+
+fn move_to_channel(ctx: &mut Arc<CacheAndHttp>, channel_from: Arc<RwLock<GuildChannel>>, channel_to: Arc<RwLock<GuildChannel>>, team: Vec<u64>) -> Result<(), IvanError> {
+    for member in channel_from.read().members(&ctx.cache).map_err(|err| {
+        IvanError { input: err.to_string(), kind: BotErrorKind::DiscordError }
+    })? {
+        if team.contains(&member.user_id().0) {
+            let user = member.user.read();
+            println!("moving user {} to team channel {}", user.id.0, channel_to.read().id.0);
+            channel_from.read().guild_id.move_member(&ctx.http, user.id, channel_to.read().id).unwrap_or_else(|err| {
+                println!("{}", err);
+            });
+        }
+    };
+    Ok(())
+}
+
+fn get_channel(ctx: &mut Arc<CacheAndHttp>, channel: u64) -> Result<Arc<RwLock<GuildChannel>>, IvanError> {
+    let dc_channel = ctx.http.get_channel(channel).map_err(|err| {
+        IvanError { input: err.to_string(), kind: BotErrorKind::DiscordError }
+    })?;
+    let guild_channel = dc_channel.guild().ok_or_else(|| {
+        IvanError { input: "channel was not a guild channel".to_string(), kind: BotErrorKind::DiscordError }
+    })?;
+    Ok(guild_channel)
+}
+
 
 fn determine_winner<'a>(vote: &'a Vote, msg: &mut Message) -> &'a Choice {
     let emoji: Vec<(&MessageReaction, &String)> = msg.reactions.iter().filter_map(|reaction| {

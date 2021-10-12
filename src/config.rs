@@ -1,26 +1,27 @@
 use std::env::var;
 use rand;
-use rand::seq::SliceRandom;
+use rand::seq::{IteratorRandom};
 use crate::pavlov::{GameMode, DEFAULT_MAPS};
 use derive_more::{Display};
-use core::{fmt };
+use core::{fmt};
 use crate::model::{BotErrorKind, IvanError};
 use serde::{Deserialize, Serialize};
 use std::{fs};
 use serde_json::{to_string_pretty, from_str};
 use dirs::home_dir;
 use std::fmt::Formatter;
+use std::cmp::min;
 
 const IVAN_CONFIG: &str = "ivan.json";
 
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct Players {
-    pub(crate) PlayerList: Vec<Player>
+    pub(crate) PlayerList: Vec<Player>,
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize,Clone)]
+#[derive(Deserialize, Clone)]
 pub struct Player {
     pub(crate) Username: String,
     pub(crate) UniqueId: String,
@@ -29,11 +30,11 @@ pub struct Player {
 #[allow(non_snake_case)]
 #[derive(Deserialize)]
 pub struct PlayerInfoContainer {
-    pub(crate) PlayerInfo : PlayerInfo
+    pub(crate) PlayerInfo: PlayerInfo,
 }
 
 #[allow(non_snake_case)]
-#[derive(Deserialize,Clone)]
+#[derive(Deserialize, Clone)]
 pub struct PlayerInfo {
     pub(crate) PlayerName: String,
     pub(crate) UniqueId: String,
@@ -58,15 +59,29 @@ pub struct IvanConfig {
     skin_shuffle: bool,
 
     #[serde(default)]
-    gun_mode : GunMode,
+    gun_mode: GunMode,
+
+    #[serde(default = "default_vote_count")]
+    map_vote_count: u64,
+
+    #[serde(default = "default_option_none")]
+    team_channels: Option<(u64, u64)>,
 }
 
-#[derive(Serialize,Deserialize,Clone,Copy,Display,Eq, PartialEq)]
+fn default_option_none() -> Option<(u64,u64)> {
+    Option::None
+}
+
+fn default_vote_count() -> u64 {
+    8
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Display, Eq, PartialEq)]
 pub enum GunMode {
     Modern,
     WW2,
     Random,
-    OitcRandom
+    OitcRandom,
 }
 
 impl Default for GunMode {
@@ -148,6 +163,13 @@ impl IvanConfig {
         })
     }
 
+    pub fn get_team_channels(&self) -> Option<(u64, u64)> {
+        self.team_channels
+    }
+    pub fn set_team_channels(&mut self,team1 : u64, team2 : u64) -> Result<(), IvanError> {
+        self.team_channels = Some((team1,team2));
+        write_config(&self)
+    }
     pub fn add_map(&mut self, map: String, gamemode: GameMode, alias: String) -> Result<(), IvanError> {
         self.maps.push(PoolMap { map, gamemode, alias });
         write_config(&self)
@@ -158,11 +180,39 @@ impl IvanConfig {
         });
         write_config(&self)
     }
-    pub fn get_maps_random(&self, amount: usize) -> Result<Vec<&PoolMap>, IvanError> {
-        if self.maps.len() < amount {
-            return Err(IvanError{ input: format!("{} was more than the amount of maps in the pool", amount), kind: BotErrorKind::InvalidVoteAmount });
+    pub fn get_maps_random(&self, game_mode: Option<GameMode>) -> Result<Vec<&PoolMap>, IvanError> {
+        if self.maps.len() < 1 {
+            return Err(IvanError { input: format!("there were no maps in the pool"), kind: BotErrorKind::InvalidVoteAmount });
         }
-        let value: Vec<&PoolMap> = self.maps.choose_multiple(&mut rand::thread_rng(), amount).collect();
+        let filtered_maps: Vec<&PoolMap> = self.maps.iter().filter(|map| {
+            match game_mode {
+                Some(value) => {
+                    if value == GameMode::GUN {
+                        match self.gun_mode {
+                            GunMode::Random => vec![GameMode::GUN, GameMode::WW2GUN].contains(&map.gamemode),
+                            GunMode::WW2 => value == GameMode::WW2GUN,
+                            GunMode::OitcRandom => vec![GameMode::GUN, GameMode::WW2GUN, GameMode::OITC].contains(&map.gamemode),
+                            GunMode::Modern => value == GameMode::GUN
+                        }
+                    } else {
+                        value == map.gamemode
+                    }
+                }
+                None => true
+            }
+        }).collect();
+
+        let amount = min(filtered_maps.len(), self.map_vote_count as usize);
+
+        if amount < 2 {
+            return Err(IvanError {
+                input: "Could not start map vote because the map pool didn't contain at least 2 maps (with the selected gameMode)".to_string(),
+                kind: BotErrorKind::InvalidVoteAmount,
+            }
+            );
+        }
+
+        let value = filtered_maps.iter().map(|value| { *value }).choose_multiple(&mut rand::thread_rng(), amount);
         return Ok(value.clone());
     }
     pub fn get_maps(&self) -> &Vec<PoolMap> {
@@ -197,7 +247,7 @@ impl IvanConfig {
         self.skin_shuffle
     }
 
-    pub fn set_gun_mode(&mut self, value : GunMode) -> Result<(), IvanError> {
+    pub fn set_gun_mode(&mut self, value: GunMode) -> Result<(), IvanError> {
         self.gun_mode = value;
         write_config(&self)
     }
@@ -205,12 +255,28 @@ impl IvanConfig {
     pub fn get_gun_mode(&self) -> GunMode {
         self.gun_mode
     }
+
+    pub fn set_vote_amount(&mut self, value: u64) -> Result<(), IvanError> {
+        if value <= 10 && value >= 2 {
+            self.map_vote_count = value;
+            write_config(&self)
+        } else {
+            Result::Err(IvanError {
+                input: "Invalid vote amount, it should be within 2-10 range".to_string(),
+                kind: BotErrorKind::InvalidVoteAmount,
+            })
+        }
+    }
+
+    pub fn get_vote_amount(&self) -> u64 {
+        self.map_vote_count
+    }
 }
 
 
 pub fn get_config() -> Result<IvanConfig, IvanError> {
     let file = fs::read_to_string(get_path()).map_err(|err| {
-        IvanError { input: err.to_string(), kind: BotErrorKind::ReadConfigError}
+        IvanError { input: err.to_string(), kind: BotErrorKind::ReadConfigError }
     })?;
     return from_str(file.as_str()).map_err(|err| {
         IvanError { input: err.to_string(), kind: BotErrorKind::DeserializeError }
@@ -228,7 +294,7 @@ fn write_config(config: &IvanConfig) -> Result<(), IvanError> {
 
 /// `MyConfig` implements `Default`
 impl ::std::default::Default for IvanConfig {
-    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None, skin_shuffle: false, gun_mode : GunMode::Modern} }
+    fn default() -> Self { Self { version: 3, admins: vec!(), mods: vec![], aliases: vec![], maps: vec![], channel_lock: None, skin_shuffle: false, gun_mode: GunMode::Modern, map_vote_count: 8, team_channels: None } }
 }
 
 fn get_path() -> String {
