@@ -1,7 +1,7 @@
 use std::env::var;
 use rand;
 use rand::seq::{IteratorRandom};
-use crate::pavlov::{GameMode, DEFAULT_MAPS};
+use crate::pavlov::{GameMode};
 use derive_more::{Display};
 use core::{fmt};
 use crate::model::{BotErrorKind, IvanError};

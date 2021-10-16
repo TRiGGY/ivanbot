@@ -5,7 +5,6 @@ use serenity::framework::Framework;
 use std::process::exit;
 use std::env::{var};
 use crate::credentials::{get_login};
-use threadpool::ThreadPool;
 use crate::config::{get_config, IvanConfig };
 use crate::model::{handle_command, IvanError};
 use crate::voting::Vote;
@@ -13,7 +12,7 @@ use std::sync::{Mutex, Arc};
 use serenity::CacheAndHttp;
 use crate::permissions::PermissionLevel;
 use crate::connect::{Connection,  create_connection_unwrap};
-use std::time::Duration;
+use threadpool::ThreadPool;
 
 
 struct Handler;
@@ -33,7 +32,7 @@ impl Framework for ConcurrentFramework {
                 event_handler(&mut guard, ctx, msg, self)
             }
             Err(err) => {
-                panic!(err.to_string())
+                panic!()
             }
         };
     }
@@ -49,7 +48,6 @@ pub struct CustomFramework {
 pub fn run_discord() {
     let token = get_discord_token();
     let mut client = Client::new_with_extras(&token, |extra| {
-        extra.cache_update_timeout(Duration::from_secs(5));
         extra.event_handler(Handler{});
         extra
     }

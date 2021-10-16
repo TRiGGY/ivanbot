@@ -7,18 +7,15 @@ use crate::discord::{CustomFramework, ConcurrentFramework};
 use crate::output::output;
 use crate::config::{IvanConfig, Players, GunMode, Player, PlayerInfo, PlayerInfoContainer};
 use crate::model::BotErrorKind::InvalidMapAlias;
-use crate::voting::{MAX_VOTE_MAPS, handle_vote_start};
+use crate::voting::{handle_vote_start};
 use std::ops::{Add};
 use serenity::http::{CacheHttp, Http};
 use serenity::static_assertions::_core::fmt::Formatter;
 use core::fmt;
 use crate::pavlov::PavlovCommands::{SetPlayerSkin, SwitchTeam};
 use rand::seq::SliceRandom;
-use crate::help::{HELP_GUNMODE, HELP_SKIN_TEAM, HELP_SKIN_MODE, HELP_CHANNEL_MODE, HELP_MAP, HELP_MAP_ARGUMENT, HELP_ALIAS_ARGUMENT, HELP_ALIAS, HELP_GAMEMODE, HELP_ALIAS_OR_MAP, HELP_VOTE_AMOUNT, HELP_VOTE_CHOICE_NUMBER, HELP_VALID_TEAM, HELP_TEAM_CREATE, HELP_TEAM_MODES, HELP_TEAM_CHANNEL};
+use crate::help::{HELP_GUNMODE, HELP_SKIN_TEAM, HELP_SKIN_MODE, HELP_CHANNEL_MODE, HELP_MAP, HELP_MAP_ARGUMENT, HELP_ALIAS_ARGUMENT, HELP_ALIAS, HELP_GAMEMODE, HELP_ALIAS_OR_MAP, HELP_VOTE_AMOUNT, HELP_VOTE_CHOICE_NUMBER, HELP_TEAM_CREATE, HELP_TEAM_MODES, HELP_TEAM_CHANNEL};
 use std::fmt::Display;
-use std::any::TypeId;
-use serenity::model::guild::Member;
-use serenity::CacheAndHttp;
 
 const BOT_HELP: &str =
     "
@@ -548,7 +545,7 @@ pub fn get_users_from_channel<'a>(msg: &mut Message, ctx: &mut dyn CacheHttp) ->
               //  ctx.http().get_guild_members()
                 for members in channel.members(ctx.cache().unwrap()) {
                     for member in members {
-                        println!("in channel {} user: {}",member.user_id().0,member.user_id().0)
+                        println!("in channel {} user: {}",channel.id,member.user_id().0)
                     }
                 }
                 let members = channel.members(ctx.cache().unwrap()).unwrap_or_else(|err| {

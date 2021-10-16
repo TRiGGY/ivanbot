@@ -1,4 +1,4 @@
-FROM rust:latest as cargo-build
+FROM rust:1.51 as cargo-build
 ENV IVAN_CONNECT_IP "127.0.0.1:9000"
 ENV IVAN_PASSWORD "your_rcon_password"
 ENV ADMIN_ID "Discord_id_for_admin"

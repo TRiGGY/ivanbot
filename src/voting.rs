@@ -4,18 +4,17 @@ use serenity::model::channel::{Message, ReactionType, MessageReaction, GuildChan
 use serenity::client::Context;
 use crate::discord::{CustomFramework, ConcurrentFramework};
 use std::ops::{Add};
-use serenity::model::id::{MessageId, ChannelId, GuildId};
+use serenity::model::id::{MessageId, ChannelId };
 use serenity::model::channel::ReactionType::Unicode;
-use crate::model::{IvanError, BotErrorKind, reply, assign_skins, get_users_from_channel};
+use crate::model::{IvanError, BotErrorKind, reply, assign_skins };
 use crate::pavlov::{PavlovCommands, GameMode, Skin};
 use rand::seq::{IteratorRandom, SliceRandom};
-use serenity::http::{CacheHttp, Http};
+use serenity::http::{CacheHttp };
 use serenity::{CacheAndHttp};
-use std::sync::{Arc, Mutex, RwLockReadGuard};
+use std::sync::{Arc, Mutex };
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use crate::config::{GunMode};
-use serenity::utils::with_cache;
 use serenity::prelude::RwLock;
 
 const KNIFE: char = '🍴';
@@ -31,7 +30,6 @@ const GOBLIN: char = '👺';
 
 const ALL_VOTE_OPTIONS: [char; 10] = [HUNDRED, KNIFE, SALT, MONEY, CHAMPAGNE, SMIRK, HAND, BARF, TURD, GOBLIN];
 
-pub const MAX_VOTE_MAPS: u32 = 4;
 
 
 pub struct Vote {
