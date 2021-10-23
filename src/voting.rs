@@ -3,14 +3,13 @@ use core::fmt;
 use serenity::model::channel::{Message, ReactionType, MessageReaction, GuildChannel};
 use serenity::client::Context;
 use crate::discord::{CustomFramework, ConcurrentFramework};
-use std::ops::{Add};
+use std::ops::{Add };
 use serenity::model::id::{MessageId, ChannelId };
 use serenity::model::channel::ReactionType::Unicode;
 use crate::model::{IvanError, BotErrorKind, reply, assign_skins };
 use crate::pavlov::{PavlovCommands, GameMode, Skin};
 use rand::seq::{IteratorRandom, SliceRandom};
 use serenity::http::{CacheHttp };
-use serenity::{CacheAndHttp};
 use std::sync::{Arc, Mutex };
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -85,7 +84,7 @@ impl Display for Choice {
     }
 }
 
-pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework, game_mode: Option<GameMode>, users: Vec<u64>, teams: Option<(Vec<u64>, Vec<u64>)>) -> Result<(), IvanError> {
+pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: ConcurrentFramework, game_mode: Option<GameMode>, users: Vec<u64>, teams: Option<(Vec<u64>, Vec<u64>)>) -> Result<(), IvanError> {
     match &mut framework.vote {
         Some(_) => {
             Err(IvanError {
@@ -119,9 +118,7 @@ pub fn handle_vote_start(framework: &mut CustomFramework, msg: &mut Message, ctx
             vote.message_id = reply.id;
             framework.vote = Some(vote);
 
-            let framework_clone = concurrent_framework.data.clone();
-            let cache_clone = concurrent_framework.cache.clone();
-            vote_thread(framework_clone, cache_clone);
+            vote_thread(concurrent_framework.data.clone(), concurrent_framework);
             Ok(())
         }
     }
@@ -139,7 +136,7 @@ fn handle_gunmode(gamemode: GameMode, gun_mode: GunMode) -> GameMode {
     }
 }
 
-fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHttp>) {
+fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: ConcurrentFramework) {
     std::thread::spawn(move || {
         wait_until_ready(framework_arc.clone(), &cache).unwrap_or_else(|error| {
             println!("waiting for vote failed because: {}", error);
@@ -148,8 +145,8 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
         let (mut msg, skin_shuffle) = match framework_arc.lock() {
             Ok(mut value) => {
                 if let Some(vote) = &value.vote {
-                    let mut message = cache.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
-                    handle_vote_finish(&mut value, &mut message, cache.clone()).unwrap_or_else(|err| {
+                    let mut message = cache.http().get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
+                    handle_vote_finish(&mut value, &mut message, &cache).unwrap_or_else(|err| {
                         println!("{}", err)
                     });
                     (message, value.config.get_skin_shuffle())
@@ -166,7 +163,7 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
             sleep(Duration::from_secs(90));
             match framework_arc.lock() {
                 Ok(mut value) => {
-                    reply(&mut msg, &cache.http, assign_skins(&mut value, Skin::get_random).unwrap_or_else(|error| { error.to_string() })).unwrap_or_else(|value| {
+                    reply(&mut msg, &cache.http(), assign_skins(&mut value, Skin::get_random).unwrap_or_else(|error| { error.to_string() })).unwrap_or_else(|value| {
                         println!("{}", value);
                         msg
                     });
@@ -180,7 +177,7 @@ fn vote_thread(framework_arc: Arc<Mutex<CustomFramework>>, cache: Arc<CacheAndHt
     });
 }
 
-fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>) -> Result<(), IvanError> {
+fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone:  &ConcurrentFramework) -> Result<(), IvanError> {
     let start = Instant::now();
     let vote_duration = Duration::from_secs(30);
     let sleep_duration = Duration::from_secs(3);
@@ -193,10 +190,10 @@ fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &
         } else {
             let time_left = vote_duration - now.duration_since(start);
             if time_left > sleep_duration {
-                update_vote(framework_clone.clone(), &cache_clone, time_left)?;
+                update_vote(framework_clone.clone(), cache_clone, time_left)?;
                 sleep(sleep_duration);
             } else {
-                update_vote(framework_clone.clone(), &cache_clone, time_left)?;
+                update_vote(framework_clone.clone(), cache_clone, time_left)?;
                 sleep(time_left);
             }
         }
@@ -204,16 +201,16 @@ fn wait_until_ready(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &
     Ok(())
 }
 
-fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &Arc<CacheAndHttp>, time_left: Duration) -> Result<(), IvanError> {
+fn update_vote(framework_clone: Arc<Mutex<CustomFramework>>, cache_clone: &ConcurrentFramework, time_left: Duration) -> Result<(), IvanError> {
     match framework_clone.lock() {
         Ok(mut framework) => {
             match &mut framework.vote {
                 Some(vote) => {
                     vote.countdown = time_left.as_secs();
-                    let mut message = cache_clone.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).map_err(|err| {
+                    let mut message = cache_clone.http().get_message(vote.channel_id.clone().0, vote.message_id.clone().0).map_err(|err| {
                         IvanError { input: format!("{}", err), kind: BotErrorKind::MessageRetrieveError }
                     })?;
-                    message.edit(cache_clone, |m| { m.content(format!("{}", vote)) }).map_err(|err| {
+                    message.edit(cache_clone.http(), |m| { m.content(format!("{}", vote)) }).map_err(|err| {
                         IvanError { input: format!("{}", err), kind: BotErrorKind::MessageEditError }
                     })?;
                     Ok(())
@@ -234,14 +231,14 @@ fn _react(msg: &mut Message, cache_http: &mut impl CacheHttp, reaction_type: &Re
 }
 
 
-pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, mut ctx: Arc<CacheAndHttp>) -> Result<(), IvanError> {
+pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message,ctx: &ConcurrentFramework) -> Result<(), IvanError> {
     match &mut framework.vote {
         Some(vote) => {
-            let mut message = ctx.http.get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
+            let mut message = ctx.http().get_message(vote.channel_id.clone().0, vote.message_id.clone().0).unwrap();
             let winner = determine_winner(vote, &mut message);
-            reply(msg, &ctx.http, format!("The winner is: {}", winner))?;
+            reply(msg, &ctx.http(), format!("The winner is: {}", winner))?;
             let response = framework.connection.execute_command(PavlovCommands::SwitchMap { map: winner.map.clone(), gamemode: winner.gamemode.clone() });
-            reply(msg, &ctx.http, response)?;
+            reply(msg, &ctx.http(), response)?;
             let teams = vote.teams.clone();
 
             framework.vote = None;
@@ -250,15 +247,15 @@ pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, mu
                 Some((team1, team2)) => {
                     return match framework.config.get_team_channels() {
                         Some((channel1, channel2)) => {
-                            let channel_1 = get_channel(&mut ctx, channel1)?;
-                            let channel_2 = get_channel(&mut ctx, channel2)?;
-                            move_to_channel(&mut ctx, channel_1.clone(), channel_2.clone(), team2)?;
-                            move_to_channel(&mut ctx, channel_2.clone(), channel_1.clone(), team1)?;
+                            let channel_1 = get_channel(ctx, channel1)?;
+                            let channel_2 = get_channel(ctx, channel2)?;
+                            move_to_channel(ctx, channel_1.clone(), channel_2.clone(), team2)?;
+                            move_to_channel(ctx, channel_2.clone(), channel_1.clone(), team1)?;
 
                             Ok(())
                         }
                         None => {
-                            reply(msg, &ctx.http, "No team channels configured so users will not be moved".to_string());
+                            reply(msg, &ctx.http(), "No team channels configured so users will not be moved".to_string())?;
                             Ok(())
                         }
                     };
@@ -270,14 +267,14 @@ pub fn handle_vote_finish(framework: &mut CustomFramework, msg: &mut Message, mu
     }
 }
 
-fn move_to_channel(ctx: &mut Arc<CacheAndHttp>, channel_from: Arc<RwLock<GuildChannel>>, channel_to: Arc<RwLock<GuildChannel>>, team: Vec<u64>) -> Result<(), IvanError> {
-    for member in channel_from.read().members(&ctx.cache).map_err(|err| {
+fn move_to_channel(ctx: &ConcurrentFramework, channel_from: Arc<RwLock<GuildChannel>>, channel_to: Arc<RwLock<GuildChannel>>, team: Vec<u64>) -> Result<(), IvanError> {
+    for member in channel_from.read() .members(&ctx.cache).map_err(|err| {
         IvanError { input: err.to_string(), kind: BotErrorKind::DiscordError }
     })? {
         if team.contains(&member.user_id().0) {
             let user = member.user.read();
             println!("moving user {} to team channel {}", user.id.0, channel_to.read().id.0);
-            channel_from.read().guild_id.move_member(&ctx.http, user.id, channel_to.read().id).unwrap_or_else(|err| {
+            channel_from.read().guild_id.move_member(&ctx.http(), user.id, channel_to.read().id).unwrap_or_else(|err| {
                 println!("{}", err);
             });
         }
@@ -285,8 +282,8 @@ fn move_to_channel(ctx: &mut Arc<CacheAndHttp>, channel_from: Arc<RwLock<GuildCh
     Ok(())
 }
 
-fn get_channel(ctx: &mut Arc<CacheAndHttp>, channel: u64) -> Result<Arc<RwLock<GuildChannel>>, IvanError> {
-    let dc_channel = ctx.http.get_channel(channel).map_err(|err| {
+fn get_channel(ctx: &ConcurrentFramework, channel: u64) -> Result<Arc<RwLock<GuildChannel>>, IvanError> {
+    let dc_channel = ctx.http().get_channel(channel).map_err(|err| {
         IvanError { input: err.to_string(), kind: BotErrorKind::DiscordError }
     })?;
     let guild_channel = dc_channel.guild().ok_or_else(|| {

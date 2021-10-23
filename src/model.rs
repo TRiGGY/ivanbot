@@ -106,7 +106,7 @@ impl Display for BotErrorKind {
     }
 }
 
-pub fn handle_command(framework: &mut CustomFramework, mut ctx: Context, mut msg: Message, arguments: &Vec<&str>, concurrent_framework: &ConcurrentFramework, permission: PermissionLevel) {
+pub fn handle_command(framework: &mut CustomFramework, mut ctx: Context, mut msg: Message, arguments: &Vec<&str>, concurrent_framework: ConcurrentFramework, permission: PermissionLevel) {
     let tree = combine_trees(framework, &mut ctx, &mut msg, arguments, concurrent_framework, permission);
     match tree {
         Ok(_) => {}
@@ -116,7 +116,7 @@ pub fn handle_command(framework: &mut CustomFramework, mut ctx: Context, mut msg
     }
 }
 
-fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut Message, arguments: &Vec<&str>, concurrent_framework: &ConcurrentFramework, permission: PermissionLevel) -> Result<(), IvanError> {
+fn combine_trees(framework: &mut CustomFramework, ctx: &mut Context, msg: &mut Message, arguments: &Vec<&str>, concurrent_framework:ConcurrentFramework, permission: PermissionLevel) -> Result<(), IvanError> {
     let first_argument = *arguments.get(0).unwrap_or_else(|| { &"" });
     let first_argument = first_argument.to_lowercase();
     let can_execute = match &permission {
@@ -399,7 +399,7 @@ fn handle_channel(arguments: &Vec<&str>, msg: &mut Message, config: &mut IvanCon
 }
 
 
-fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
+fn handle_map(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: ConcurrentFramework) -> Result<(), IvanError> {
     let first = pa(arguments, 1, HELP_MAP_ARGUMENT)?;
     match first.to_lowercase().as_str() {
         "add" => map_add(arguments, framework, msg, ctx),
@@ -444,7 +444,7 @@ fn handle_vote_amount(arguments: &Vec<&str>, config: &mut IvanConfig) -> Result<
 }
 
 
-fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: &ConcurrentFramework) -> Result<(), IvanError> {
+fn handle_vote(arguments: &Vec<&str>, framework: &mut CustomFramework, msg: &mut Message, ctx: &mut Context, concurrent_framework: ConcurrentFramework) -> Result<(), IvanError> {
 //    let second = pa(arguments, 2, HELP_VOTE_ARGUMENT)?;
 
     let game_mode = match pa(arguments, 2, HELP_GAMEMODE) {
@@ -539,9 +539,9 @@ pub fn get_users_from_channel<'a>(msg: &mut Message, ctx: &mut dyn CacheHttp) ->
             let author = msg.author.id.0.clone();
             let guild = ctx.http().get_guild(guild_id.0)?;
             let guild_channels = guild.channels(&ctx.http())?;
-            guild_channels.iter().filter(|(id, channel)| {
+            guild_channels.iter().filter(|(_, channel)| {
                 channel.kind == ChannelType::Voice
-            }).find_map(|(id, channel)| {
+            }).find_map(|(_, channel)| {
               //  ctx.http().get_guild_members()
                 for members in channel.members(ctx.cache().unwrap()) {
                     for member in members {

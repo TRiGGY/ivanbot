@@ -1,6 +1,6 @@
 use serenity::client::{Client, EventHandler};
 use serenity::model::channel::{Message};
-use serenity::prelude::{Context};
+use serenity::prelude::{Context };
 use serenity::framework::Framework;
 use std::process::exit;
 use std::env::{var};
@@ -9,29 +9,45 @@ use crate::config::{get_config, IvanConfig };
 use crate::model::{handle_command, IvanError};
 use crate::voting::Vote;
 use std::sync::{Mutex, Arc};
-use serenity::CacheAndHttp;
 use crate::permissions::PermissionLevel;
 use crate::connect::{Connection,  create_connection_unwrap};
 use threadpool::ThreadPool;
+use serenity::cache::{CacheRwLock};
+use serenity::http::{Http, CacheHttp};
 
 
 struct Handler;
 
 impl EventHandler for Handler {}
-
-pub struct ConcurrentFramework {
+#[derive(Clone)]
+pub struct ConcurrentFramework<> {
     pub data: Arc<Mutex<CustomFramework>>,
-    pub cache: Arc<CacheAndHttp>,
+    pub cache: CacheRwLock,
+    pub http : Arc<Http>
 }
+
+impl CacheHttp for ConcurrentFramework {
+    fn http(&self) -> &Http {
+        &*self.http
+    }
+
+    fn cache(&self) -> Option<&CacheRwLock> {
+        Option::Some(&self.cache)
+    }
+}
+
+
+
 
 impl Framework for ConcurrentFramework {
     fn dispatch(&mut self, ctx: Context, msg: Message, _: &ThreadPool) {
         let mutex = self.data.lock();
         return match mutex {
             Ok(mut guard) => {
-                event_handler(&mut guard, ctx, msg, self)
+                self.cache = ctx.cache.clone();
+                event_handler(&mut guard, ctx, msg, self.clone())
             }
-            Err(err) => {
+            Err(_) => {
                 panic!()
             }
         };
@@ -63,7 +79,8 @@ pub fn run_discord() {
 
     let concurrent_framework = ConcurrentFramework {
         data: arc,
-        cache: client.cache_and_http.clone(),
+        cache: client.cache_and_http.cache.clone(),
+        http : client.cache_and_http.http.clone()
     };
 
     client.with_framework(concurrent_framework);
@@ -82,7 +99,8 @@ fn recover_error(error: Result<IvanConfig, IvanError>) -> IvanConfig {
     }
 }
 
-fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message, concurrent_framework: &ConcurrentFramework) {
+fn event_handler(framework: &mut CustomFramework, ctx: Context, msg: Message, concurrent_framework: ConcurrentFramework) {
+    //concurrent_framework.cache =Arc::new(ctx.clone());
     let permission_level = authenticate(&msg, &framework.config);
     if let PermissionLevel::None = permission_level {
         return;

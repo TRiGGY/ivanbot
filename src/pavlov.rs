@@ -80,7 +80,6 @@ pub type TeamId = u32;
 
 #[derive(Copy, Clone)]
 pub enum Skin {
-    Cop,
     Clown,
     Prisoner,
     Naked,
@@ -90,9 +89,10 @@ pub enum Skin {
     German,
     Soviet,
     Us,
+    Cop,
 }
 
-const SKINS: [Skin; 9] = [
+const SKINS: [Skin; 10] = [
     Skin::Clown,
     Skin::Prisoner,
     Skin::Naked,
@@ -101,7 +101,9 @@ const SKINS: [Skin; 9] = [
     Skin::Nato,
     Skin::German,
     Skin::Soviet,
-    Skin::Us];
+    Skin::Us,
+    Skin::Cop
+];
 
 impl Skin {
     pub fn get_random() -> Skin {
